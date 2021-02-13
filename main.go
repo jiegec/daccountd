@@ -1,4 +1,4 @@
-package daccountd
+package main
 
 import (
 	"fmt"
