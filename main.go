@@ -7,7 +7,9 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 
+	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/pelletier/go-toml"
 	"github.com/urfave/cli/v2"
 	"go.etcd.io/etcd/embed"
@@ -28,8 +30,24 @@ type Config struct {
 	Host []Host
 }
 
-func handleLdapConnection(c net.Conn) {
+func dumpPacket(packet *ber.Packet, indent int) {
+	log.Printf("%s Id=%+v Val=%+v", strings.Repeat(" ", indent), packet.Identifier, packet.Value)
+	for i := range packet.Children {
+		dumpPacket(packet.Children[i], indent+2)
+	}
+}
 
+func handleLdapConnection(c net.Conn) {
+	log.Printf("Handle LDAP connection from %s", c.RemoteAddr().String())
+	defer c.Close()
+	for {
+		packet, err := ber.ReadPacket(c)
+		if err != nil {
+			log.Print("Failed to read packet: ", err)
+			return
+		}
+		dumpPacket(packet, 0)
+	}
 }
 
 func ldapServer() {
@@ -59,14 +77,14 @@ func action(c *cli.Context) error {
 	configFile := c.String("config")
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		log.Fatal("Failed to read config file", err)
+		log.Fatal("Failed to read config file: ", err)
 		return err
 	}
 
 	config := Config{}
 	err = toml.Unmarshal(data, &config)
 	if err != nil {
-		log.Fatal("Failed to parse config file", err)
+		log.Fatal("Failed to parse config file: ", err)
 		return err
 	}
 
@@ -134,7 +152,7 @@ func action(c *cli.Context) error {
 	log.Printf("Server started")
 	defer server.Close()
 
-	ldapServer()
+	go ldapServer()
 
 	exit := false
 	for !exit {
@@ -145,6 +163,8 @@ func action(c *cli.Context) error {
 			exit = true
 		}
 	}
+	log.Printf("Stopped, exiting")
+	os.Exit(0)
 
 	return nil
 }
