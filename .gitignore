@@ -1,4 +1,7 @@
-daccountd
 data*/
 *.pcap
 *.ldif
+
+# Added by cargo
+
+/target
