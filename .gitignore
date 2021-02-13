@@ -1,2 +1,4 @@
 daccountd
 data*/
+*.pcap
+*.ldif

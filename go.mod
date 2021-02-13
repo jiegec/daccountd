@@ -1,6 +1,6 @@
 module github.com/jiegec/daccountd
 
-go 1.16
+go 1.15
 
 require (
 	github.com/go-asn1-ber/asn1-ber v1.5.3
