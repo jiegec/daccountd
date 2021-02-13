@@ -1,6 +1,7 @@
 data*/
 *.pcap
 *.ldif
+*.log
 
 # Added by cargo
 

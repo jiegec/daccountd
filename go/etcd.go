@@ -21,7 +21,7 @@ var server Server
 // Run runs an embedded etcd server
 //export Run
 func Run(data string, name string, initialCluster string,
-	logLevel string,
+	logLevel string, logFile string,
 	advertiseClient string, listenClient string,
 	advertisePeer string, listenPeer string,
 ) string {
@@ -38,6 +38,9 @@ func Run(data string, name string, initialCluster string,
 	cfg.Name = name
 	cfg.InitialCluster = initialCluster
 	cfg.LogLevel = logLevel
+	if logFile != "" {
+		cfg.LogOutputs = []string{logFile}
+	}
 
 	if cfg.ACUrls, err = types.NewURLs([]string{advertiseClient}); err != nil {
 		goto end

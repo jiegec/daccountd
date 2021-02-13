@@ -1,13 +1,13 @@
-[[Host]]
-HostName = "node1"
-AdvertiseClient = "http://127.0.0.1:30011"
-ListenClient = "http://127.0.0.1:30011"
-AdvertisePeer = "http://127.0.0.1:30012"
-ListenPeer = "http://127.0.0.1:30012"
+[[host]]
+name = "node1"
+advertise_client = "http://127.0.0.1:30011"
+listen_client = "http://127.0.0.1:30011"
+advertise_peer = "http://127.0.0.1:30012"
+listen_peer = "http://127.0.0.1:30012"
 
-[[Host]]
-HostName = "node2"
-AdvertiseClient = "http://127.0.0.1:30021"
-ListenClient = "http://127.0.0.1:30021"
-AdvertisePeer = "http://127.0.0.1:30022"
-ListenPeer = "http://127.0.0.1:30022"
+[[host]]
+name = "node2"
+advertise_client = "http://127.0.0.1:30021"
+listen_client = "http://127.0.0.1:30021"
+advertise_peer = "http://127.0.0.1:30022"
+listen_peer = "http://127.0.0.1:30022"
