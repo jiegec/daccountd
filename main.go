@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 
@@ -25,6 +26,30 @@ type Host struct {
 // Config struct for config file
 type Config struct {
 	Host []Host
+}
+
+func handleLdapConnection(c net.Conn) {
+
+}
+
+func ldapServer() {
+	l, err := net.Listen("tcp", ":1389")
+	if err != nil {
+		log.Fatal("Failed to listen", err)
+		return
+	}
+	log.Printf("Listening LDAP on :1389")
+
+	defer l.Close()
+
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			log.Fatal("Failed to accept", err)
+			return
+		}
+		go handleLdapConnection(c)
+	}
 }
 
 func action(c *cli.Context) error {
@@ -108,6 +133,8 @@ func action(c *cli.Context) error {
 	}
 	log.Printf("Server started")
 	defer server.Close()
+
+	ldapServer()
 
 	exit := false
 	for !exit {
