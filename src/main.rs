@@ -12,7 +12,8 @@ use gethostname::gethostname;
 use lber::{structure::StructureTag, Consumer, ConsumerState, Input, Move, Parser};
 use ldap3_server::{
     proto::{LdapBindResponse, LdapMsg, LdapResult},
-    DisconnectionNotice, LdapResultCode,
+    DisconnectionNotice, LdapFilter, LdapPartialAttribute, LdapResultCode, LdapSearchResultEntry,
+    LdapSearchScope, SearchRequest,
 };
 use log::*;
 use serde_derive::Deserialize;
@@ -48,22 +49,22 @@ pub fn go_string(s: &str) -> GoString {
     }
 }
 
-async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Option<LdapMsg>> {
+async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Vec<LdapMsg>> {
     use ldap3_server::proto::LdapOp::*;
     let msg = match LdapMsg::try_from(msg) {
         Ok(msg) => msg,
         Err(_) => {
             info!("Fail to parse msg");
-            return Ok(Some(DisconnectionNotice::gen(
+            return Ok(vec![DisconnectionNotice::gen(
                 LdapResultCode::ProtocolError,
                 "Unable to parse message",
-            )));
+            )]);
         }
     };
     match msg.op {
         BindRequest(req) => {
             // https://tools.ietf.org/html/rfc4511#section-4.2
-            info!("Got bind request to {} with cred {:?}", req.dn, req.cred);
+            info!("Got bind request to {:?} with cred {:?}", req.dn, req.cred);
 
             let resp = LdapMsg {
                 msgid: msg.msgid,
@@ -79,7 +80,7 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Op
                 ctrl: vec![],
             };
 
-            Ok(Some(resp))
+            Ok(vec![resp])
         }
         AddRequest(req) => {
             // https://tools.ietf.org/html/rfc4511#section-4.7
@@ -152,22 +153,70 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Op
                 ctrl: vec![],
             };
 
-            Ok(Some(resp))
+            Ok(vec![resp])
+        }
+        SearchRequest(req) => {
+            // https://tools.ietf.org/html/rfc4511#section-4.5.1
+
+            // server specific data
+            // https://tools.ietf.org/html/rfc4512#section-5.1
+            if req.base == "" && req.scope == LdapSearchScope::Base {
+                if req.filter == LdapFilter::Present("objectclass".to_string()) {
+                    info!("Got server specific data request {:?}", req);
+                    let entry = LdapMsg {
+                        msgid: msg.msgid,
+                        op: SearchResultEntry(LdapSearchResultEntry {
+                            dn: "".to_string(),
+                            attributes: vec![LdapPartialAttribute {
+                                atype: "supportedSASLMechanisms".to_string(),
+                                vals: vec![],
+                            }],
+                        }),
+                        ctrl: vec![],
+                    };
+
+                    let done = LdapMsg {
+                        msgid: msg.msgid,
+                        op: SearchResultDone(LdapResult {
+                            code: LdapResultCode::Success,
+                            matcheddn: "".to_string(),
+                            message: "Return server specific data".to_string(),
+                            referral: vec![],
+                        }),
+                        ctrl: vec![],
+                    };
+
+                    return Ok(vec![entry, done]);
+                }
+            }
+            info!("Got search request {:?}", req);
+
+            let resp = LdapMsg {
+                msgid: msg.msgid,
+                op: SearchResultDone(LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: req.base,
+                    message: "Return search result".to_string(),
+                    referral: vec![],
+                }),
+                ctrl: vec![],
+            };
+            Ok(vec![resp])
         }
         UnbindRequest => {
             // https://tools.ietf.org/html/rfc4511#section-4.3
             info!("Got unbind request");
-            Ok(Some(DisconnectionNotice::gen(
+            Ok(vec![DisconnectionNotice::gen(
                 LdapResultCode::Success,
                 "Unbind",
-            )))
+            )])
         }
         msg => {
             info!("Got unknown message: {:#?}", msg);
-            Ok(Some(DisconnectionNotice::gen(
+            Ok(vec![DisconnectionNotice::gen(
                 LdapResultCode::ProtocolError,
                 "Unknown message",
-            )))
+            )])
         }
     }
 }
@@ -203,7 +252,7 @@ async fn ldap_handler(mut client: Client, mut socket: TcpStream) -> anyhow::Resu
         // move buffer
         buffer.copy_within(size..len + size, 0);
 
-        if let Some(resp) = handle_msg(&mut client, msg).await? {
+        for resp in handle_msg(&mut client, msg).await? {
             let tag: StructureTag = resp.into();
             let mut resp_buffer = BytesMut::with_capacity(4096);
             lber::write::encode_into(&mut resp_buffer, tag)?;
