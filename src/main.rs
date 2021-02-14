@@ -7,13 +7,13 @@ include!("../target/bindings.rs");
 use anyhow::anyhow;
 use bytes::BytesMut;
 use clap::{App, Arg};
-use etcd_client::{Client, Compare, Txn, TxnOp, TxnOpResponse};
+use etcd_client::{Client, Compare, GetOptions, Txn, TxnOp, TxnOpResponse};
 use gethostname::gethostname;
 use lber::{structure::StructureTag, Consumer, ConsumerState, Input, Move, Parser};
 use ldap3_server::{
     proto::{LdapBindResponse, LdapMsg, LdapResult},
     DisconnectionNotice, LdapFilter, LdapPartialAttribute, LdapResultCode, LdapSearchResultEntry,
-    LdapSearchScope, SearchRequest,
+    LdapSearchScope,
 };
 use log::*;
 use serde_derive::Deserialize;
@@ -46,6 +46,23 @@ pub fn go_string(s: &str) -> GoString {
     GoString {
         p: s.as_bytes().as_ptr() as *const i8,
         n: s.len() as isize,
+    }
+}
+
+pub fn match_filter(filter: &LdapFilter, attrs: &HashMap<String, Vec<String>>) -> bool {
+    use LdapFilter::*;
+    match filter {
+        And(f) => f.iter().all(|f| match_filter(f, attrs)),
+        Or(f) => f.iter().any(|f| match_filter(f, attrs)),
+        Not(f) => !match_filter(f, attrs),
+        Equality(k, v) => {
+            if let Some(vals) = attrs.get(k) {
+                vals.contains(v)
+            } else {
+                false
+            }
+        }
+        Present(k) => attrs.contains_key(k),
     }
 }
 
@@ -191,7 +208,45 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Ve
             }
             info!("Got search request {:?}", req);
 
-            let resp = LdapMsg {
+            let mut resp = vec![];
+
+            // query
+            let mut parts: Vec<&str> = req.base.split(",").map(str::trim).collect();
+            parts.reverse();
+            let prefix = parts.join(",") + ",";
+            if req.scope == LdapSearchScope::Subtree {
+                let entries = client
+                    .get(prefix, Some(GetOptions::new().with_prefix()))
+                    .await?;
+                for kv in entries.kvs() {
+                    let mut actual_key: Vec<&str> = kv.key_str()?.split(",").collect();
+                    actual_key.reverse();
+                    let attrs: HashMap<String, Vec<String>> = serde_json::from_slice(kv.value())?;
+
+                    if !match_filter(&req.filter, &attrs) {
+                        continue;
+                    }
+
+                    let entry = LdapMsg {
+                        msgid: msg.msgid,
+                        op: SearchResultEntry(LdapSearchResultEntry {
+                            dn: actual_key.join(","),
+                            attributes: attrs
+                                .iter()
+                                .filter(|(k, _v)| req.attrs.contains(k))
+                                .map(|(k, v)| LdapPartialAttribute {
+                                    atype: k.clone(),
+                                    vals: v.clone(),
+                                })
+                                .collect(),
+                        }),
+                        ctrl: vec![],
+                    };
+                    resp.push(entry);
+                }
+            }
+
+            let done = LdapMsg {
                 msgid: msg.msgid,
                 op: SearchResultDone(LdapResult {
                     code: LdapResultCode::Success,
@@ -201,7 +256,9 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Ve
                 }),
                 ctrl: vec![],
             };
-            Ok(vec![resp])
+            info!("Return {} search entries", resp.len());
+            resp.push(done);
+            Ok(resp)
         }
         UnbindRequest => {
             // https://tools.ietf.org/html/rfc4511#section-4.3
