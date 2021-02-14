@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
@@ -184,6 +185,13 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 	for _, v := range r.Attributes() {
 		attrs[string(v.Type_())] = v.Vals()
 	}
+
+	// operational attribuets
+	// https://tools.ietf.org/html/rfc4512#section-3.4
+	t := time.Now().Format("20060102150400-0700")
+	attrs["createTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
+	attrs["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
+
 	val, err := json.Marshal(attrs)
 	if err != nil {
 		log.Printf("Got error when marshal attributes into json: %s", err)
