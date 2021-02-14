@@ -11,7 +11,7 @@ use etcd_client::{Client, Compare, GetOptions, Txn, TxnOp, TxnOpResponse};
 use gethostname::gethostname;
 use lber::{structure::StructureTag, Consumer, ConsumerState, Input, Move, Parser};
 use ldap3_server::{
-    proto::{LdapBindResponse, LdapMsg, LdapResult},
+    proto::{LdapBindResponse, LdapMsg, LdapResult, LdapSubstringFilter},
     DisconnectionNotice, LdapFilter, LdapPartialAttribute, LdapResultCode, LdapSearchResultEntry,
     LdapSearchScope,
 };
@@ -58,6 +58,19 @@ pub fn match_filter(filter: &LdapFilter, attrs: &HashMap<String, Vec<String>>) -
         Equality(k, v) => {
             if let Some(vals) = attrs.get(k) {
                 vals.contains(v)
+            } else {
+                false
+            }
+        }
+        Substring(k, filters) => {
+            if let Some(vals) = attrs.get(k) {
+                vals.iter().any(|val| {
+                    filters.iter().all(|f| match f {
+                        LdapSubstringFilter::Initial(s) => val.starts_with(s),
+                        LdapSubstringFilter::Any(s) => val.contains(s),
+                        LdapSubstringFilter::Final(s) => val.ends_with(s),
+                    })
+                })
             } else {
                 false
             }
@@ -260,7 +273,14 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Ve
             resp.push(done);
             Ok(resp)
         }
+        AbandonRequest(id) => {
+            // https://tools.ietf.org/html/rfc4511#section-4.11
+            // do nothing
+            info!("Got abandon request to {}", id);
+            Ok(vec![])
+        }
         DelRequest(dn) => {
+            // https://tools.ietf.org/html/rfc4511#section-4.8
             let mut parts: Vec<&str> = dn.split(",").map(str::trim).collect();
             parts.reverse();
             let key = parts.join(",");
