@@ -1,9 +1,3 @@
 data*/
-.vscode/
-*.pcap
-*.ldif
+daccountd
 *.log
-
-# Added by cargo
-
-/target
