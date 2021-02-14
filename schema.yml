@@ -45,6 +45,14 @@ schemas:
   equality: integerMatch
   syntax: INTEGER
   single-value: true
+- oid: nisSchema.1.2
+  link: https://tools.ietf.org/html/rfc2307#section-3
+  name: gecos
+  desc: The GECOS field; the common name
+  equality: caseIgnoreIA5Match
+  substrings: caseIgnoreIA5SubstringsMatch
+  syntax: IA5String
+  single-value: true
 - oid: 2.5.18.1
   link: https://tools.ietf.org/html/rfc4512#section-3.4.2
   name: createTimestamp

@@ -9,4 +9,5 @@ require (
 	github.com/vjeantet/ldapserver v1.0.1
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200425165423-262c93980547
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

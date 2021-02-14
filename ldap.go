@@ -76,11 +76,17 @@ func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValu
 		// key not found
 		return false
 	case message.FilterEqualityMatch:
+		eq := func(s1, s2 string) bool { return s1 == s2 }
+		if sch, ok := schemaMap[string(f.AttributeDesc())]; ok {
+			if fun, ok := equalityMap[sch.Equality]; ok {
+				eq = fun
+			}
+		}
 		for k, vals := range attrs {
 			if strings.EqualFold(k, string(f.AttributeDesc())) {
 				for _, val := range vals {
 					v := string(val)
-					if strings.EqualFold(v, string(f.AssertionValue())) {
+					if eq(v, string(f.AssertionValue())) {
 						return true
 					}
 				}
@@ -188,7 +194,7 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 
 	// operational attribuets
 	// https://tools.ietf.org/html/rfc4512#section-3.4
-	t := time.Now().Format("20060102150405-0700")
+	t := time.Now().Format(generalizedTimeFormat)
 	attrs["createTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 	attrs["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
