@@ -55,13 +55,15 @@ pub fn match_filter(filter: &LdapFilter, attrs: &HashMap<String, Vec<String>>) -
         And(f) => f.iter().all(|f| match_filter(f, attrs)),
         Or(f) => f.iter().any(|f| match_filter(f, attrs)),
         Not(f) => !match_filter(f, attrs),
-        Equality(k, v) => {
-            if let Some(vals) = attrs.get(k) {
+        Equality(k, v) => attrs.iter().any(|(key, vals)| {
+            // key is case insensitive
+            // TODO: value? need schema
+            if key.eq_ignore_ascii_case(k) {
                 vals.contains(v)
             } else {
                 false
             }
-        }
+        }),
         Substring(k, filters) => {
             if let Some(vals) = attrs.get(k) {
                 vals.iter().any(|val| {
