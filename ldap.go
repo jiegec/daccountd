@@ -188,7 +188,7 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 
 	// operational attribuets
 	// https://tools.ietf.org/html/rfc4512#section-3.4
-	t := time.Now().Format("20060102150400-0700")
+	t := time.Now().Format("20060102150405-0700")
 	attrs["createTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 	attrs["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
