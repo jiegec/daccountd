@@ -3,6 +3,7 @@ module github.com/jiegec/daccountd
 go 1.16
 
 require (
+	github.com/lor00x/goldap v0.0.0-20180618054307-a546dffdd1a3
 	github.com/pelletier/go-toml v1.8.1
 	github.com/urfave/cli/v2 v2.3.0
 	github.com/vjeantet/ldapserver v1.0.1

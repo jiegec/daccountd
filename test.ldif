@@ -1,0 +1,29 @@
+dn: dc=com
+changeType: add
+
+dn: dc=example,dc=com
+changeType: add
+
+dn: ou=users,dc=example,dc=com
+changeType: add
+
+dn: uid=test,ou=users,dc=example,dc=com
+changeType: delete
+
+dn: uid=test,ou=users,dc=example,dc=com
+changeType: add
+objectClass: top
+objectClass: account
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: test
+uid: test
+uidNumber: 16859
+gidNumber: 1000
+homeDirectory: /home/test
+loginShell: /bin/bash
+gecos: test
+userPassword: {crypt}x
+shadowLastChange: 0
+shadowMax: 0
+shadowWarning: 0

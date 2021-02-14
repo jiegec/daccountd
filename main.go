@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/pelletier/go-toml"
 	"github.com/urfave/cli/v2"
 	ldap "github.com/vjeantet/ldapserver"
+	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/embed"
 	"go.etcd.io/etcd/pkg/types"
 )
@@ -30,6 +32,8 @@ type Config struct {
 }
 
 var etcd *embed.Etcd
+var client *clientv3.Client
+var kvc clientv3.KV
 
 func action(c *cli.Context) error {
 	sigChannel := make(chan os.Signal, 1)
@@ -119,9 +123,22 @@ func action(c *cli.Context) error {
 	routes := ldap.NewRouteMux()
 	routes.Bind(handleBind)
 	routes.Search(handleSearch)
+	routes.Add(handleAdd)
+	routes.Delete(handleDelete)
 	ldapServer.Handle(routes)
 
 	go ldapServer.ListenAndServe(host.Ldap)
+
+	client, err = clientv3.New(clientv3.Config{
+		Endpoints:   []string{host.ListenClient},
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		log.Fatal("Failed to start etcd client", err)
+		return err
+	}
+	kvc = clientv3.NewKV(client)
+	defer client.Close()
 
 	exit := false
 	for !exit {
