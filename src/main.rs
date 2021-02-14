@@ -260,6 +260,32 @@ async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Ve
             resp.push(done);
             Ok(resp)
         }
+        DelRequest(dn) => {
+            let mut parts: Vec<&str> = dn.split(",").map(str::trim).collect();
+            parts.reverse();
+            let key = parts.join(",");
+            let res = client.delete(key, None).await?;
+            let (code, message) = if res.deleted() > 0 {
+                (LdapResultCode::Success, "Deletion success")
+            } else {
+                (
+                    LdapResultCode::NoSuchObject,
+                    "The key to delete is not found",
+                )
+            };
+
+            let resp = LdapMsg {
+                msgid: msg.msgid,
+                op: DelResponse(LdapResult {
+                    code,
+                    matcheddn: dn,
+                    message: message.to_string(),
+                    referral: vec![],
+                }),
+                ctrl: vec![],
+            };
+            Ok(vec![resp])
+        }
         UnbindRequest => {
             // https://tools.ietf.org/html/rfc4511#section-4.3
             info!("Got unbind request");
