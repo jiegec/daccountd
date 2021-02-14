@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
 	"go.etcd.io/etcd/clientv3"
 )
@@ -21,10 +22,136 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	w.Write(res)
 }
 
-func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
-	res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
+func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValue) bool {
+	switch f := filter.(type) {
+	case message.FilterAnd:
+		for _, child := range f {
+			match := matchFilter(child, attrs)
+			if !match {
+				return false
+			}
+		}
+		return true
+	case message.FilterOr:
+		for _, child := range f {
+			match := matchFilter(child, attrs)
+			if match {
+				return true
+			}
+		}
+		return false
+	case message.FilterNot:
+		return !matchFilter(f.Filter, attrs)
+	case message.FilterSubstrings:
+		for k, vals := range attrs {
+			if strings.EqualFold(k, string(f.Type_())) {
+				for _, val := range vals {
+					v := string(val)
+					match := true
+					for _, fs := range f.Substrings() {
+						switch fsv := fs.(type) {
+						case message.SubstringInitial:
+							if !strings.HasPrefix(v, string(fsv)) {
+								match = false
+							}
+						case message.SubstringAny:
+							if !strings.Contains(v, string(fsv)) {
+								match = false
+							}
+						case message.SubstringFinal:
+							if !strings.HasSuffix(v, string(fsv)) {
+								match = false
+							}
+						}
+					}
+					if match {
+						return true
+					}
+				}
+				// vals not match
+				return false
+			}
+		}
+		// key not found
+		return false
+	case message.FilterEqualityMatch:
+		for k, vals := range attrs {
+			if strings.EqualFold(k, string(f.AttributeDesc())) {
+				for _, val := range vals {
+					v := string(val)
+					if strings.EqualFold(v, string(f.AssertionValue())) {
+						return true
+					}
+				}
+				// vals not match
+				return false
+			}
+		}
+		// key not found
+		return false
+	case message.FilterPresent:
+		for k := range attrs {
+			if strings.EqualFold(k, string(f)) {
+				// found key
+				return true
+			}
+		}
+		// key not found
+		return false
+	default:
+		// TODO
+		return false
+	}
+}
 
-	w.Write(res)
+func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
+	r := m.GetSearchRequest()
+
+	if r.BaseObject() == "" && r.Scope() == ldap.SearchRequestScopeBaseObject && strings.ToLower(r.FilterString()) == "(objectclass=*)" {
+		// server specific data
+		// https://tools.ietf.org/html/rfc4512#section-5.1
+		res := ldap.NewSearchResultEntry("")
+		res.AddAttribute("supportedSASLMechanisms")
+		w.Write(res)
+		w.Write(ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess))
+	} else {
+		log.Printf("Search base=%s filter=%s", r.BaseObject(), r.FilterString())
+		parts := getParts(string(r.BaseObject()))
+		key := strings.Join(parts, ",")
+		resp, err := kvc.Get(context.Background(), key+",", clientv3.WithPrefix())
+		if err != nil {
+			log.Printf("Failed to search entry %s: %s", key, err)
+			res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		count := 0
+		for i := range resp.Kvs {
+			key := string(resp.Kvs[i].Key)
+			parts := getParts(key)
+			res := ldap.NewSearchResultEntry(strings.Join(parts, ","))
+			var value map[string][]message.AttributeValue
+			err := json.Unmarshal(resp.Kvs[i].Value, &value)
+			if err != nil {
+				log.Printf("Failed to unmarshal json: %s", err)
+				continue
+			}
+
+			if !matchFilter(r.Filter(), value) {
+				continue
+			}
+
+			for k, v := range value {
+				res.AddAttribute(message.AttributeDescription(k), v...)
+			}
+			w.Write(res)
+			count = count + 1
+		}
+		log.Printf("Return %d search entries", count)
+		res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
+		w.Write(res)
+	}
 }
 
 func getParts(s string) []string {
@@ -53,7 +180,11 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 	}
 
 	// does not override
-	val, err := json.Marshal(r.Attributes())
+	attrs := make(map[string][]message.AttributeValue)
+	for _, v := range r.Attributes() {
+		attrs[string(v.Type_())] = v.Vals()
+	}
+	val, err := json.Marshal(attrs)
 	if err != nil {
 		log.Printf("Got error when marshal attributes into json: %s", err)
 		res := ldap.NewAddResponse(ldap.LDAPResultUnavailable)
@@ -114,4 +245,7 @@ func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
 			w.Write(res)
 		}
 	}
+}
+
+func handleAbandon(w ldap.ResponseWriter, m *ldap.Message) {
 }

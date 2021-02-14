@@ -118,6 +118,8 @@ func action(c *cli.Context) error {
 	log.Printf("Server started")
 	defer etcd.Close()
 
+	// too verbose
+	ldap.Logger = ldap.DiscardingLogger
 	ldapServer := ldap.NewServer()
 
 	routes := ldap.NewRouteMux()
@@ -125,6 +127,7 @@ func action(c *cli.Context) error {
 	routes.Search(handleSearch)
 	routes.Add(handleAdd)
 	routes.Delete(handleDelete)
+	routes.Abandon(handleAbandon)
 	ldapServer.Handle(routes)
 
 	go ldapServer.ListenAndServe(host.Ldap)
