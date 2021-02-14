@@ -8,12 +8,18 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.38"
+bytes = "1.0.1"
 clap = "2.33.3"
 env_logger = "0.8.3"
+etcd-client = "0.6.1"
 gethostname = "0.2.1"
+lber = "0.3.0"
+ldap3_server = { path = "../ldap3_server" }
 log = "0.4.14"
 serde = "1.0.123"
 serde_derive = "1.0.123"
+serde_json = "1.0.62"
+tokio = { version = "1.2.0", features = ["rt-multi-thread", "net", "macros", "io-util"] }
 toml = "0.5.8"
 
 [build-dependencies]

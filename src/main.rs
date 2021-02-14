@@ -4,11 +4,24 @@
 
 include!("../target/bindings.rs");
 
+use anyhow::anyhow;
+use bytes::BytesMut;
 use clap::{App, Arg};
+use etcd_client::{Client, Compare, Txn, TxnOp, TxnOpResponse};
 use gethostname::gethostname;
+use lber::{structure::StructureTag, Consumer, ConsumerState, Input, Move, Parser};
+use ldap3_server::{
+    proto::{LdapBindResponse, LdapMsg, LdapResult},
+    DisconnectionNotice, LdapResultCode,
+};
 use log::*;
 use serde_derive::Deserialize;
-use std::{fs::File, io::Read};
+use std::{collections::HashMap, convert::TryFrom, fs::File, io::Read, unimplemented};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    task::yield_now,
+};
 
 #[derive(Deserialize)]
 struct Config {
@@ -21,6 +34,7 @@ struct Host {
     name: String,
     data: Option<String>,
     log: Option<String>,
+    ldap: Option<String>,
     advertise_client: String,
     listen_client: String,
     advertise_peer: String,
@@ -34,7 +48,172 @@ pub fn go_string(s: &str) -> GoString {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+async fn handle_msg(client: &mut Client, msg: StructureTag) -> anyhow::Result<Option<LdapMsg>> {
+    use ldap3_server::proto::LdapOp::*;
+    let msg = match LdapMsg::try_from(msg) {
+        Ok(msg) => msg,
+        Err(_) => {
+            info!("Fail to parse msg");
+            return Ok(Some(DisconnectionNotice::gen(
+                LdapResultCode::ProtocolError,
+                "Unable to parse message",
+            )));
+        }
+    };
+    match msg.op {
+        BindRequest(req) => {
+            // https://tools.ietf.org/html/rfc4511#section-4.2
+            info!("Got bind request to {} with cred {:?}", req.dn, req.cred);
+
+            let resp = LdapMsg {
+                msgid: msg.msgid,
+                op: BindResponse(LdapBindResponse {
+                    res: LdapResult {
+                        code: LdapResultCode::Success,
+                        matcheddn: req.dn,
+                        message: format!("Bind success"),
+                        referral: vec![],
+                    },
+                    saslcreds: None,
+                }),
+                ctrl: vec![],
+            };
+
+            Ok(Some(resp))
+        }
+        AddRequest(req) => {
+            // https://tools.ietf.org/html/rfc4511#section-4.7
+            info!(
+                "Got add request to {} with attrs {:?}",
+                req.dn, req.attributes
+            );
+
+            let mut parts: Vec<&str> = req.dn.split(",").map(str::trim).collect();
+            parts.reverse();
+
+            let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            for attr in &req.attributes {
+                map.insert(attr.atype.clone(), attr.vals.clone());
+            }
+
+            let value = serde_json::to_vec(&map)?;
+
+            info!("Put data to etcd");
+            let key = parts.join(",");
+            info!("Key is {}", key);
+            let mut txn = Txn::new();
+            // create revision > 0 means exists
+            if parts.len() > 1 {
+                // The immediate superior (parent) of an
+                // object or alias entry to be added MUST exist.
+                let parent = parts[..parts.len() - 1].join(",");
+                info!("Parent DN is {}", parent);
+                txn = txn.when(vec![
+                    Compare::create_revision(parent, etcd_client::CompareOp::Greater, 0),
+                    Compare::create_revision(key.clone(), etcd_client::CompareOp::Equal, 0),
+                ]);
+            } else {
+                txn = txn.when(vec![Compare::create_revision(
+                    key.clone(),
+                    etcd_client::CompareOp::Equal,
+                    0,
+                )]);
+            }
+            txn = txn.and_then(vec![TxnOp::put(key.clone(), value, None)]);
+            txn = txn.or_else(vec![TxnOp::get(key, None)]);
+            let ret = client.txn(txn).await?;
+
+            let (code, message) = if ret.succeeded() {
+                (LdapResultCode::Success, "Add entry success")
+            } else {
+                match ret.op_responses().get(0) {
+                    Some(TxnOpResponse::Get(resp)) => {
+                        if resp.count() > 0 {
+                            // already exists
+                            (LdapResultCode::EntryAlreadyExists, "Entry already exists")
+                        } else {
+                            // parent does not exist
+                            (LdapResultCode::NoSuchObject, "Parent DN does not exist")
+                        }
+                    }
+                    _ => (LdapResultCode::Other, "Internal error"),
+                }
+            };
+            info!("Add resp code {:?} message {}", code, message);
+
+            let resp = LdapMsg {
+                msgid: msg.msgid,
+                op: AddResponse(LdapResult {
+                    code,
+                    matcheddn: req.dn,
+                    message: message.to_string(),
+                    referral: vec![],
+                }),
+                ctrl: vec![],
+            };
+
+            Ok(Some(resp))
+        }
+        UnbindRequest => {
+            // https://tools.ietf.org/html/rfc4511#section-4.3
+            info!("Got unbind request");
+            Ok(Some(DisconnectionNotice::gen(
+                LdapResultCode::Success,
+                "Unbind",
+            )))
+        }
+        msg => {
+            info!("Got unknown message: {:#?}", msg);
+            Ok(Some(DisconnectionNotice::gen(
+                LdapResultCode::ProtocolError,
+                "Unknown message",
+            )))
+        }
+    }
+}
+
+async fn ldap_handler(mut client: Client, mut socket: TcpStream) -> anyhow::Result<()> {
+    // receive message handling
+    let mut buffer = vec![0u8; 1024];
+    let mut len = 0;
+    let mut parser = Parser::new();
+    loop {
+        let bytes = socket.read(&mut buffer[len..]).await?;
+        if bytes == 0 {
+            // connection closed
+            return Ok(());
+        }
+        len += bytes;
+
+        let (size, msg) = match parser.handle(Input::Element(&buffer)) {
+            ConsumerState::Continue(_) => continue,
+            ConsumerState::Error(_) => {
+                return Err(anyhow!("Got error when parsing asn1 ber message"));
+            }
+            ConsumerState::Done(size, msg) => (size, msg.clone()),
+        };
+
+        let size = *match size {
+            Move::Await(_) => continue,
+            Move::Seek(_) => unimplemented!(),
+            Move::Consume(s) => s,
+        };
+        len -= size;
+
+        // move buffer
+        buffer.copy_within(size..len + size, 0);
+
+        if let Some(resp) = handle_msg(&mut client, msg).await? {
+            let tag: StructureTag = resp.into();
+            let mut resp_buffer = BytesMut::with_capacity(4096);
+            lber::write::encode_into(&mut resp_buffer, tag)?;
+            socket.write_all(&resp_buffer).await?;
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("daccountd")
@@ -89,7 +268,27 @@ fn main() -> anyhow::Result<()> {
         info!("Initial cluster is {}", initial_cluster);
         info!("Etcd data is located at {}", data);
         info!("Etcd is logged to {}", log);
-        loop {}
+
+        let client = Client::connect([&host.listen_client], None).await?;
+
+        // start ldap server
+        if let Some(ldap) = &host.ldap {
+            let listener = TcpListener::bind(&ldap).await?;
+            loop {
+                let (socket, addr) = listener.accept().await?;
+                let client = client.clone();
+                tokio::spawn(async move {
+                    info!("Got LDAP connection from {}", addr);
+                    if let Err(err) = ldap_handler(client, socket).await {
+                        warn!("Got error {} for client {}", err, addr);
+                    }
+                });
+            }
+        } else {
+            loop {
+                yield_now().await;
+            }
+        }
     } else {
         error!("No matching configuration found for host {}", name);
     }
