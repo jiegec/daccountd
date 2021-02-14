@@ -76,10 +76,12 @@ func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValu
 		// key not found
 		return false
 	case message.FilterEqualityMatch:
-		eq := func(s1, s2 string) bool { return s1 == s2 }
+		eq := equalityMap["default"]
 		if sch, ok := schemaMap[string(f.AttributeDesc())]; ok {
 			if fun, ok := equalityMap[sch.Equality]; ok {
 				eq = fun
+			} else if sch.Equality != "" {
+				log.Printf("Warning: equality match function %s not found", sch.Equality)
 			}
 		}
 		for k, vals := range attrs {
@@ -104,6 +106,48 @@ func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValu
 			}
 		}
 		// key not found
+		return false
+	case message.FilterGreaterOrEqual:
+		ord := orderingMap["default"]
+		if sch, ok := schemaMap[string(f.AttributeDesc())]; ok {
+			if fun, ok := orderingMap[sch.Ordering]; ok {
+				ord = fun
+			} else if sch.Ordering != "" {
+				log.Printf("Warning: ordering match function %s not found", sch.Ordering)
+			}
+		}
+		for k, vals := range attrs {
+			if strings.EqualFold(k, string(f.AttributeDesc())) {
+				for _, val := range vals {
+					if ord(string(val), string(f.AssertionValue())) >= OrderingEqual {
+						return true
+					}
+				}
+				// vals not match
+				return false
+			}
+		}
+		return false
+	case message.FilterLessOrEqual:
+		ord := orderingMap["default"]
+		if sch, ok := schemaMap[string(f.AttributeDesc())]; ok {
+			if fun, ok := orderingMap[sch.Ordering]; ok {
+				ord = fun
+			} else if sch.Ordering != "" {
+				log.Printf("Warning: ordering match function %s not found", sch.Ordering)
+			}
+		}
+		for k, vals := range attrs {
+			if strings.EqualFold(k, string(f.AttributeDesc())) {
+				for _, val := range vals {
+					if ord(string(val), string(f.AssertionValue())) <= OrderingEqual {
+						return true
+					}
+				}
+				// vals not match
+				return false
+			}
+		}
 		return false
 	default:
 		// TODO

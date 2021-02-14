@@ -40,3 +40,4 @@ objectClass: top
 objectClass: posixGroup
 cn: test
 gidNumber: 10001
+memberUid: test
