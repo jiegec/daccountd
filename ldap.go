@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GehirnInc/crypt"
+	_ "github.com/GehirnInc/crypt/sha256_crypt"
+	_ "github.com/GehirnInc/crypt/sha512_crypt"
 	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
 	"go.etcd.io/etcd/clientv3"
@@ -15,13 +18,63 @@ import (
 
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetBindRequest()
-	res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
 
-	// TODO: auth
+	if r.AuthenticationChoice() != "simple" {
+		res := ldap.NewBindResponse(ldap.LDAPResultUnwillingToPerform)
+		res.SetDiagnosticMessage("Authentication choice not supported")
+		w.Write(res)
+		return
+	}
 
-	log.Printf("[%s]Got bind request: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
+	parts := getParts(string(r.Name()))
+	key := strings.Join(parts, ",")
+	resp, err := kvc.Get(context.Background(), key)
+	if err != nil {
+		goto fail
+	}
 
+	for _, kv := range resp.Kvs {
+		var value map[string][]message.AttributeValue
+		err := json.Unmarshal(kv.Value, &value)
+		if err != nil {
+			log.Printf("Failed to unmarshal json: %s", err)
+			continue
+		}
+
+		if vals, ok := value["userPassword"]; ok {
+			for _, pass := range vals {
+				pass := string(pass)
+				if strings.HasPrefix(pass, "{crypt}") {
+					pass = strings.TrimPrefix(pass, "{crypt}")
+					if !crypt.IsHashSupported(pass) {
+						continue
+					}
+
+					log.Printf("Verify %s, %s", pass, r.AuthenticationSimple().Bytes())
+					crypt := crypt.NewFromHash(pass)
+					err := crypt.Verify(pass, r.AuthenticationSimple().Bytes())
+					if err == nil {
+						// success
+						log.Printf("[%s]Bind success: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
+
+						res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
+						w.Write(res)
+						return
+					}
+				}
+			}
+		}
+
+	}
+
+fail:
+	// fail
+	log.Printf("[%s]Bind failed: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
+
+	res := ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials)
 	w.Write(res)
+	return
+
 }
 
 func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValue) bool {
