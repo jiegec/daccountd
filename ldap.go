@@ -529,21 +529,26 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 				for k := range value {
 					if strings.EqualFold(k, t) {
 						// found key
-						vals := map[message.AttributeValue]bool{}
+						vals := map[string]bool{}
 						// add original
-						for _, v := range value[key] {
-							vals[v] = true
+						for _, v := range value[k] {
+							vals[string(v)] = true
 						}
 						// remove deleted
 						for _, v := range mod {
-							delete(vals, v)
+							delete(vals, string(v))
 						}
 						// collect
 						n := []message.AttributeValue{}
 						for k := range vals {
-							n = append(n, k)
+							n = append(n, message.AttributeValue(k))
 						}
-						value[key] = n
+						if len(n) > 0 {
+							value[k] = n
+						} else {
+							// remove if empty
+							delete(value, k)
+						}
 						break
 					}
 				}
@@ -556,7 +561,12 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 						break
 					}
 				}
-				value[key] = mod
+				if len(mod) > 0 {
+					value[key] = mod
+				} else {
+					// remove if empty
+					delete(value, key)
+				}
 			}
 		}
 
