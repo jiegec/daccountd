@@ -417,6 +417,18 @@ func handleStartTLS(w ldap.ResponseWriter, m *ldap.Message) {
 	log.Printf("[%s]StartTLS Done", m.Client.Addr())
 }
 
+func passwordEncrypt(val string) (string, error) {
+	if !strings.HasPrefix(val, "{crypt}") {
+		crypt := crypt.SHA512.New()
+		n, err := crypt.Generate([]byte(val), []byte{})
+		if err != nil {
+			return "", err
+		}
+		return "{crypt}" + string(n), nil
+	}
+	return val, nil
+}
+
 func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 	// https://tools.ietf.org/html/rfc4511#section-4.6
 	r := m.GetModifyRequest()
@@ -449,17 +461,16 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 			mod := change.Modification().Vals()
 			// auto encrypt for userPassword
 			if strings.EqualFold(t, "userPassword") {
-				crypt := crypt.SHA512.New()
 				for i := range mod {
 					if !strings.HasPrefix(string(mod[i]), "{crypt}") {
-						n, err := crypt.Generate([]byte(string(mod[i])), []byte{})
+						n, err := passwordEncrypt(string(mod[i]))
 						if err != nil {
 							log.Printf("[%s]Failed to encrypt password: %s", m.Client.Addr(), err)
 							res := ldap.NewModifyResponse(ldap.LDAPResultOther)
 							w.Write(res)
 							return
 						}
-						mod[i] = message.AttributeValue("{crypt}" + string(n))
+						mod[i] = message.AttributeValue(string(n))
 					}
 				}
 			}

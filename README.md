@@ -8,6 +8,7 @@ Implemented features:
 
 1. Basic operations(add, delete, modify and search)
 2. StartTLS
+3. Automatic encrypt `userPassword` using crypt(SHA512 with salt)
 
 Unimplemented features:
 
