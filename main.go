@@ -44,6 +44,12 @@ func action(c *cli.Context) error {
 	signal.Notify(sigChannel, os.Interrupt)
 
 	configFile := c.String("config")
+	stat, err := os.Stat(configFile)
+	if stat.Mode() != 0600 {
+		log.Fatalf("Config file mode(%o) should be 600", stat.Mode())
+		return err
+	}
+
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		log.Fatal("Failed to read config file: ", err)
