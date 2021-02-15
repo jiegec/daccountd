@@ -1,0 +1,10 @@
+[Unit]
+Description=daccountd
+After=network.target
+
+[Service]
+WorkingDirectory=/etc/daccountd
+ExecStart=/usr/sbin/daccountd --config config.toml
+
+[Install]
+WantedBy=multi-user.target

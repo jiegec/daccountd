@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"time"
 
@@ -41,6 +42,21 @@ var config Config
 var host Host
 
 func action(c *cli.Context) error {
+	if c.Bool("install") {
+		log.Printf("Installing daccountd.service to /etc/systemd/system")
+		err := ioutil.WriteFile("/etc/systemd/system/daccountd.service", systemdService, 0644)
+		if err != nil {
+			log.Printf("Installing daccountd.service failed with %s", err)
+		}
+
+		log.Printf("Installing daccountd to /usr/sbin/daccountd")
+		err = exec.Command("install", "-m", "755", os.Args[0], "/usr/sbin/daccountd").Run()
+		if err != nil {
+			log.Printf("Installing daccountd failed with %s", err)
+		}
+		return nil
+	}
+
 	sigChannel := make(chan os.Signal, 1)
 	signal.Notify(sigChannel, os.Interrupt)
 
@@ -224,6 +240,10 @@ func main() {
 			&cli.BoolFlag{
 				Name:  "existing",
 				Usage: "Join existing cluster",
+			},
+			&cli.BoolFlag{
+				Name:  "install",
+				Usage: "Install systemd service to /etc/systemd/system",
 			},
 		},
 		Action: action,

@@ -104,3 +104,6 @@ var orderingMap = map[string]orderingFunc{
 		return ordering(strings.Compare(s1, s2))
 	},
 }
+
+//go:embed daccountd.service
+var systemdService []byte
