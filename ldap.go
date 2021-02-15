@@ -166,7 +166,7 @@ func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 		w.Write(res)
 		w.Write(ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess))
 	} else {
-		log.Printf("Search base=%s filter=%s", r.BaseObject(), r.FilterString())
+		log.Printf("Search id=%d base=%s filter=%s attrs=%s", m.MessageID(), r.BaseObject(), r.FilterString(), r.Attributes())
 		parts := getParts(string(r.BaseObject()))
 		key := strings.Join(parts, ",")
 		resp, err := kvc.Get(context.Background(), key+",", clientv3.WithPrefix())
@@ -199,7 +199,7 @@ func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 			w.Write(res)
 			count = count + 1
 		}
-		log.Printf("Return %d search entries", count)
+		log.Printf("Search response id=%d entries=%d", m.MessageID(), count)
 		res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
 		w.Write(res)
 	}

@@ -23,9 +23,9 @@ gidNumber: 10001
 homeDirectory: /home/test
 loginShell: /bin/bash
 gecos: test
-userPassword: {crypt}x
+userPassword: {crypt}$6$xyz$rjarwc/BNZWcH6B31aAXWo1942.i7rCX5AT/oxALL5gCznYVGKh6nycQVZiHDVbnbu0BsQyPfBgqYveKcCgOE0
 shadowLastChange: 0
-shadowMax: 0
+shadowMax: 99999
 shadowWarning: 0
 
 dn: ou=groups,dc=example,dc=com
