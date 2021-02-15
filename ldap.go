@@ -340,7 +340,9 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 	// operational attribuets
 	// https://tools.ietf.org/html/rfc4512#section-3.4
 	t := time.Now().Format(generalizedTimeFormat)
+	attrs["creatorsName"] = []message.AttributeValue{message.AttributeValue(bindDN[m.Client.Numero])}
 	attrs["createTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
+	attrs["modifiersName"] = []message.AttributeValue{message.AttributeValue(bindDN[m.Client.Numero])}
 	attrs["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
 	val, err := json.Marshal(attrs)
@@ -561,6 +563,7 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 		// operational attribuets
 		// https://tools.ietf.org/html/rfc4512#section-3.4
 		t := time.Now().Format(generalizedTimeFormat)
+		value["modifiersName"] = []message.AttributeValue{message.AttributeValue(bindDN[m.Client.Numero])}
 		value["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
 		after, err := json.Marshal(value)
@@ -685,6 +688,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 		// operational attribuets
 		// https://tools.ietf.org/html/rfc4512#section-3.4
 		t := time.Now().Format(generalizedTimeFormat)
+		value["modifiersName"] = []message.AttributeValue{message.AttributeValue(bindDN[m.Client.Numero])}
 		value["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
 		after, err := json.Marshal(value)
