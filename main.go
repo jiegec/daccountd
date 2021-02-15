@@ -24,6 +24,8 @@ type Host struct {
 	ListenPeer      string
 	AdvertisePeer   string
 	Ldap            string
+	TLSCert         string
+	TLSKey          string
 }
 
 // Config struct for config file
@@ -34,6 +36,8 @@ type Config struct {
 var etcd *embed.Etcd
 var client *clientv3.Client
 var kvc clientv3.KV
+var tlsCert string
+var tlsKey string
 
 func action(c *cli.Context) error {
 	sigChannel := make(chan os.Signal, 1)
@@ -71,6 +75,8 @@ func action(c *cli.Context) error {
 		log.Fatalf("Config not found for hostname %s", hostname)
 		return err
 	}
+	tlsCert = host.TLSCert
+	tlsKey = host.TLSKey
 
 	cfg := embed.NewConfig()
 	cfg.Dir = c.String("data-dir")
@@ -129,10 +135,16 @@ func action(c *cli.Context) error {
 
 	routes := ldap.NewRouteMux()
 	routes.Bind(handleBind)
+	routes.Search(handleSearchDSE).
+		BaseDn("").
+		Scope(ldap.SearchRequestScopeBaseObject).
+		Filter("(objectclass=*)")
 	routes.Search(handleSearch)
 	routes.Add(handleAdd)
 	routes.Delete(handleDelete)
 	routes.Abandon(handleAbandon)
+	routes.Extended(handleStartTLS).
+		RequestName(ldap.NoticeOfStartTLS)
 	ldapServer.Handle(routes)
 
 	go ldapServer.ListenAndServe(host.Ldap)

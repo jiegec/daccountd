@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"strings"
@@ -18,7 +19,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 
 	// TODO: auth
 
-	log.Printf("Got bind request: %s %s", r.Name(), r.AuthenticationSimple())
+	log.Printf("[%s]Got bind request: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
 
 	w.Write(res)
 }
@@ -155,54 +156,56 @@ func matchFilter(filter message.Filter, attrs map[string][]message.AttributeValu
 	}
 }
 
+func handleSearchDSE(w ldap.ResponseWriter, m *ldap.Message) {
+	// server specific data
+	// https://tools.ietf.org/html/rfc4512#section-5.1
+	res := ldap.NewSearchResultEntry("")
+	res.AddAttribute("supportedSASLMechanisms")
+	res.AddAttribute("supportedLDAPVersion", "3")
+	w.Write(res)
+	w.Write(ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess))
+	log.Printf("[%s]Sent DSE data", m.Client.Addr())
+}
+
 func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetSearchRequest()
 
-	if r.BaseObject() == "" && r.Scope() == ldap.SearchRequestScopeBaseObject && strings.ToLower(r.FilterString()) == "(objectclass=*)" {
-		// server specific data
-		// https://tools.ietf.org/html/rfc4512#section-5.1
-		res := ldap.NewSearchResultEntry("")
-		res.AddAttribute("supportedSASLMechanisms")
+	log.Printf("[%s]Search id=%d base=%s filter=%s attrs=%s", m.Client.Addr(), m.MessageID(), r.BaseObject(), r.FilterString(), r.Attributes())
+	parts := getParts(string(r.BaseObject()))
+	key := strings.Join(parts, ",")
+	resp, err := kvc.Get(context.Background(), key+",", clientv3.WithPrefix())
+	if err != nil {
+		log.Printf("[%s]Failed to search entry %s: %s", m.Client.Addr(), key, err)
+		res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultOther)
 		w.Write(res)
-		w.Write(ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess))
-	} else {
-		log.Printf("Search id=%d base=%s filter=%s attrs=%s", m.MessageID(), r.BaseObject(), r.FilterString(), r.Attributes())
-		parts := getParts(string(r.BaseObject()))
-		key := strings.Join(parts, ",")
-		resp, err := kvc.Get(context.Background(), key+",", clientv3.WithPrefix())
-		if err != nil {
-			log.Printf("Failed to search entry %s: %s", key, err)
-			res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultOther)
-			w.Write(res)
-			return
-		}
-
-		count := 0
-		for i := range resp.Kvs {
-			key := string(resp.Kvs[i].Key)
-			parts := getParts(key)
-			res := ldap.NewSearchResultEntry(strings.Join(parts, ","))
-			var value map[string][]message.AttributeValue
-			err := json.Unmarshal(resp.Kvs[i].Value, &value)
-			if err != nil {
-				log.Printf("Failed to unmarshal json: %s", err)
-				continue
-			}
-
-			if !matchFilter(r.Filter(), value) {
-				continue
-			}
-
-			for k, v := range value {
-				res.AddAttribute(message.AttributeDescription(k), v...)
-			}
-			w.Write(res)
-			count = count + 1
-		}
-		log.Printf("Search response id=%d entries=%d", m.MessageID(), count)
-		res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
-		w.Write(res)
+		return
 	}
+
+	count := 0
+	for i := range resp.Kvs {
+		key := string(resp.Kvs[i].Key)
+		parts := getParts(key)
+		res := ldap.NewSearchResultEntry(strings.Join(parts, ","))
+		var value map[string][]message.AttributeValue
+		err := json.Unmarshal(resp.Kvs[i].Value, &value)
+		if err != nil {
+			log.Printf("Failed to unmarshal json: %s", err)
+			continue
+		}
+
+		if !matchFilter(r.Filter(), value) {
+			continue
+		}
+
+		for k, v := range value {
+			res.AddAttribute(message.AttributeDescription(k), v...)
+		}
+		w.Write(res)
+		count = count + 1
+	}
+	log.Printf("[%s]Search response id=%d entries=%d", m.Client.Addr(), m.MessageID(), count)
+	res := ldap.NewSearchResultDoneResponse(ldap.LDAPResultSuccess)
+	w.Write(res)
 }
 
 func getParts(s string) []string {
@@ -294,7 +297,7 @@ func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
 		w.Write(res)
 	} else {
 		if resp.Deleted > 0 {
-			log.Printf("Entry deleted %s", err)
+			log.Printf("Entry %s deleted", key)
 			res := ldap.NewDeleteResponse(ldap.LDAPResultSuccess)
 			w.Write(res)
 		} else {
@@ -306,4 +309,35 @@ func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handleAbandon(w ldap.ResponseWriter, m *ldap.Message) {
+}
+
+func handleStartTLS(w ldap.ResponseWriter, m *ldap.Message) {
+	cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
+	if err != nil {
+		log.Printf("StartTLS failed when loading x509 keypair: %s", err)
+		res := ldap.NewResponse(ldap.LDAPResultUnwillingToPerform)
+		w.Write(res)
+		return
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{cert},
+		ServerName:   "127.0.0.1",
+	}
+	tlsConn := tls.Server(m.Client.GetConn(), tlsConfig)
+	res := ldap.NewExtendedResponse(ldap.LDAPResultSuccess)
+	res.SetResponseName(ldap.NoticeOfStartTLS)
+	w.Write(res)
+
+	if err := tlsConn.Handshake(); err != nil {
+		log.Printf("[%s]StartTLS Handshake error %s", m.Client.Addr(), err)
+		res.SetResultCode(ldap.LDAPResultOperationsError)
+		w.Write(res)
+		return
+	}
+
+	m.Client.SetConn(tlsConn)
+	log.Printf("[%s]StartTLS Done", m.Client.Addr())
 }
