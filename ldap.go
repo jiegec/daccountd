@@ -14,6 +14,7 @@ import (
 	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
 	"go.etcd.io/etcd/clientv3"
+	ber "gopkg.in/asn1-ber.v1"
 )
 
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
@@ -556,6 +557,120 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 	log.Printf("[%s]Entry update conflicted too many times: %s", m.Client.Addr(), key)
 	res := ldap.NewModifyResponse(ldap.LDAPResultNoSuchObject)
+	w.Write(res)
+	return
+}
+
+func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
+	// https://tools.ietf.org/html/rfc3062#section-2
+	r := m.GetExtendedRequest()
+	val := r.RequestValue().Bytes()
+	pkt, err := ber.DecodePacketErr(val)
+	if err != nil || len(pkt.Children) != 3 {
+		res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+		w.Write(res)
+	}
+	dn := string(pkt.Children[0].Data.Bytes())
+	oldPass := string(pkt.Children[1].Data.Bytes())
+	newPass := string(pkt.Children[2].Data.Bytes())
+	log.Printf("[%s]Handle password modify %s from %s to %s", m.Client.Addr(), dn, oldPass, newPass)
+
+	parts := getParts(dn)
+
+	key := strings.Join(parts, ",")
+	// try at most 10 times
+	for i := 0; i < 10; i++ {
+		resp, err := kvc.Get(context.Background(), key)
+		if err != nil {
+			log.Printf("Entry %s not found: %s", key, err)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultNoSuchObject)
+			w.Write(res)
+			return
+		}
+
+		before := resp.Kvs[0].Value
+		var value map[string][]message.AttributeValue
+		err = json.Unmarshal(before, &value)
+		if err != nil {
+			log.Printf("Failed to unmarshal json: %s", err)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		userPassword, ok := value["userPassword"]
+		if !ok || len(userPassword) != 1 {
+			log.Printf("Bad password in entry %s", key)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		pass := string(userPassword[0])
+
+		correct := true
+		if strings.HasPrefix(pass, "{crypt}") {
+			pass := strings.TrimPrefix(pass, "{crypt}")
+			if crypt.IsHashSupported(pass) {
+				// crypt
+				crypt := crypt.NewFromHash(pass)
+				err := crypt.Verify(pass, []byte(oldPass))
+				correct = err == nil
+			} else {
+				correct = false
+			}
+		} else {
+			// clear text?
+			correct = pass == oldPass
+		}
+		if !correct {
+			log.Printf("Wrong password in entry %s", key)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultInvalidCredentials)
+			w.Write(res)
+			return
+		}
+
+		npass, err := passwordEncrypt(newPass)
+		if err != nil {
+			log.Printf("Failed to hash password: %s", err)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+		value["userPassword"] = []message.AttributeValue{message.AttributeValue(npass)}
+
+		after, err := json.Marshal(value)
+		if err != nil {
+			log.Printf("Failed to marshal json: %s", err)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		// update if untouched
+		txn := kvc.Txn(context.Background()).
+			If(clientv3.Compare(clientv3.Value(key), "=", string(before))).
+			Then(clientv3.OpPut(key, string(after)))
+		txnResp, err := txn.Commit()
+		if err != nil {
+			log.Printf("[%s]Failed to submit txn: %s", m.Client.Addr(), err)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		if txnResp.Succeeded {
+			log.Printf("[%s]Entry %s updated from %s to %s", m.Client.Addr(), key, before, after)
+			res := ldap.NewExtendedResponse(ldap.LDAPResultSuccess)
+			w.Write(res)
+			return
+		}
+
+		// fail, retry
+	}
+
+	log.Printf("[%s]Entry update conflicted too many times: %s", m.Client.Addr(), key)
+	res := ldap.NewExtendedResponse(ldap.LDAPResultNoSuchObject)
 	w.Write(res)
 	return
 }

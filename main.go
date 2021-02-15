@@ -165,6 +165,8 @@ func action(c *cli.Context) error {
 	routes.Modify(handleModify)
 	routes.Extended(handleStartTLS).
 		RequestName(ldap.NoticeOfStartTLS)
+	routes.Extended(handlePasswordModify).
+		RequestName(ldap.NoticeOfPasswordModify)
 	ldapServer.Handle(routes)
 
 	go ldapServer.ListenAndServe(host.Ldap)
