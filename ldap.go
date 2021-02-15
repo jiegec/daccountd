@@ -17,6 +17,9 @@ import (
 	ber "gopkg.in/asn1-ber.v1"
 )
 
+// the map from m.Client.Numero to DN bound
+var bindDN map[int]string
+
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetBindRequest()
 
@@ -79,6 +82,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 						// success
 						log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
 
+						bindDN[m.Client.Numero] = key
 						res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
 						w.Write(res)
 						return
@@ -243,6 +247,11 @@ func handleSearchDSE(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
+	if bindDN[m.Client.Numero] == "" {
+		w.Write(ldap.NewSearchResultDoneResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
 	r := m.GetSearchRequest()
 
 	log.Printf("[%s]Search id=%d base=%s filter=%s attrs=%s", m.Client.Addr(), m.MessageID(), r.BaseObject(), r.FilterString(), r.Attributes())
@@ -293,6 +302,11 @@ func getParts(s string) []string {
 }
 
 func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
+	if bindDN[m.Client.Numero] == "" {
+		w.Write(ldap.NewAddResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
 	// https://tools.ietf.org/html/rfc4511#section-4.7
 	r := m.GetAddRequest()
 	parts := getParts(string(r.Entry()))
@@ -359,6 +373,11 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
+	if bindDN[m.Client.Numero] == "" {
+		w.Write(ldap.NewDeleteResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
 	// https://tools.ietf.org/html/rfc4511#section-4.8
 	r := m.GetDeleteRequest()
 	parts := getParts(string(r))
@@ -431,6 +450,11 @@ func passwordEncrypt(val string) (string, error) {
 }
 
 func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
+	if bindDN[m.Client.Numero] == "" {
+		w.Write(ldap.NewModifyResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
 	// https://tools.ietf.org/html/rfc4511#section-4.6
 	r := m.GetModifyRequest()
 	log.Printf("[%s]Handle modify %s", m.Client.Addr(), r.Object())
@@ -562,6 +586,11 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
+	if bindDN[m.Client.Numero] == "" {
+		w.Write(ldap.NewExtendedResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
 	// https://tools.ietf.org/html/rfc3062#section-2
 	r := m.GetExtendedRequest()
 	val := r.RequestValue().Bytes()
