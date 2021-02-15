@@ -42,14 +42,14 @@ func action(c *cli.Context) error {
 	configFile := c.String("config")
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		log.Fatal("Failed to read config file", err)
+		log.Fatal("Failed to read config file: ", err)
 		return err
 	}
 
 	config := Config{}
 	err = toml.Unmarshal(data, &config)
 	if err != nil {
-		log.Fatal("Failed to parse config file", err)
+		log.Fatal("Failed to parse config file: ", err)
 		return err
 	}
 
@@ -78,6 +78,11 @@ func action(c *cli.Context) error {
 	cfg.Name = hostname
 	cfg.InitialCluster = initialCluster
 	cfg.LogOutputs = []string{fmt.Sprintf("etcd-%s.log", hostname)}
+	cfg.ClientAutoTLS = true
+	cfg.PeerAutoTLS = true
+	if c.Bool("existing") {
+		cfg.ClusterState = "existing"
+	}
 
 	if host.AdvertiseClient != "" {
 		if cfg.ACUrls, err = types.NewURLs([]string{host.AdvertiseClient}); err != nil {
@@ -112,7 +117,7 @@ func action(c *cli.Context) error {
 
 	etcd, err = embed.StartEtcd(cfg)
 	if err != nil {
-		log.Fatal("Failed to start embedded etcd", err)
+		log.Fatal("Failed to start embedded etcd: ", err)
 		return err
 	}
 	log.Printf("Server started")
@@ -137,7 +142,7 @@ func action(c *cli.Context) error {
 		DialTimeout: 5 * time.Second,
 	})
 	if err != nil {
-		log.Fatal("Failed to start etcd client", err)
+		log.Fatal("Failed to start etcd client: ", err)
 		return err
 	}
 	kvc = clientv3.NewKV(client)
@@ -181,6 +186,10 @@ func main() {
 				Name:  "host",
 				Value: hostname,
 				Usage: "Override host name",
+			},
+			&cli.BoolFlag{
+				Name:  "existing",
+				Usage: "Join existing cluster",
 			},
 		},
 		Action: action,
