@@ -21,6 +21,32 @@ import (
 // the map from m.Client.Numero to DN bound
 var bindDN map[int]string = make(map[int]string)
 
+// root user bind dn
+const rootDN = "uid=root"
+
+func normalizeDN(s string) string {
+	parts := strings.Split(s, ",")
+	res := make([]string, len(parts))
+	for i := range parts {
+		res[i] = strings.TrimSpace(parts[i])
+	}
+	return strings.Join(parts, ",")
+}
+
+func getParts(s string) []string {
+	parts := strings.Split(s, ",")
+	res := make([]string, len(parts))
+	for i := range parts {
+		res[len(parts)-i-1] = strings.TrimSpace(parts[i])
+	}
+	return res
+}
+
+func getKey(s string) string {
+	parts := getParts(s)
+	return strings.Join(parts, ",")
+}
+
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetBindRequest()
 
@@ -31,7 +57,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 		return
 	}
 
-	if r.Name() == "uid=root" {
+	if r.Name() == rootDN {
 		// bind to root
 		pass := config.RootPassword
 		if crypt.IsHashSupported(pass) {
@@ -41,7 +67,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 				// success
 				log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
 
-				bindDN[m.Client.Numero] = string(r.Name())
+				bindDN[m.Client.Numero] = normalizeDN(string(r.Name()))
 
 				w.Write(ldap.NewBindResponse(ldap.LDAPResultSuccess))
 				return
@@ -52,8 +78,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 		return
 	}
 
-	parts := getParts(string(r.Name()))
-	key := strings.Join(parts, ",")
+	key := getKey(string(r.Name()))
 
 	resp, err := kvc.Get(context.Background(), key)
 	if err != nil {
@@ -83,7 +108,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 						// success
 						log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
 
-						bindDN[m.Client.Numero] = key
+						bindDN[m.Client.Numero] = normalizeDN(string(r.Name()))
 						res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
 						w.Write(res)
 						return
@@ -301,18 +326,20 @@ func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 	w.Write(res)
 }
 
-func getParts(s string) []string {
-	parts := strings.Split(s, ",")
-	res := make([]string, len(parts))
-	for i := range parts {
-		res[len(parts)-i-1] = strings.TrimSpace(parts[i])
-	}
-	return res
-}
-
 func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
+	// requires bind to dn
 	if bindDN[m.Client.Numero] == "" {
+		log.Printf("[%s]Access denied to add entry by anonymous user",
+			m.Client.Addr())
 		w.Write(ldap.NewAddResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
+	// only root dn can add entries
+	if bindDN[m.Client.Numero] != rootDN {
+		log.Printf("[%s]Access denied to add entry by user %s",
+			m.Client.Addr(), bindDN[m.Client.Numero])
+		w.Write(ldap.NewAddResponse(ldap.LDAPResultInsufficientAccessRights))
 		return
 	}
 
@@ -385,7 +412,17 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 
 func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
 	if bindDN[m.Client.Numero] == "" {
+		log.Printf("[%s]Access denied to delete entry by anonymous user",
+			m.Client.Addr())
 		w.Write(ldap.NewDeleteResponse(ldap.LDAPResultInappropriateAuthentication))
+		return
+	}
+
+	// only root dn can delete entries
+	if bindDN[m.Client.Numero] != rootDN {
+		log.Printf("[%s]Access denied to delete entry by user %s",
+			m.Client.Addr(), bindDN[m.Client.Numero])
+		w.Write(ldap.NewDeleteResponse(ldap.LDAPResultInsufficientAccessRights))
 		return
 	}
 
@@ -462,6 +499,8 @@ func passwordEncrypt(val string) (string, error) {
 
 func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 	if bindDN[m.Client.Numero] == "" {
+		log.Printf("[%s]Access denied to modify entry by anonymous user",
+			m.Client.Addr())
 		w.Write(ldap.NewModifyResponse(ldap.LDAPResultInappropriateAuthentication))
 		return
 	}
@@ -469,9 +508,18 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 	// https://tools.ietf.org/html/rfc4511#section-4.6
 	r := m.GetModifyRequest()
 	log.Printf("[%s]Handle modify %s", m.Client.Addr(), r.Object())
-	parts := getParts(string(r.Object()))
 
-	key := strings.Join(parts, ",")
+	// root dn can modify all entries,
+	// while others can only modify their own
+	if !(bindDN[m.Client.Numero] == rootDN || bindDN[m.Client.Numero] == string(r.Object())) {
+		log.Printf("[%s]Access denied to modify entry by user %s",
+			m.Client.Addr(), bindDN[m.Client.Numero])
+		w.Write(ldap.NewDeleteResponse(ldap.LDAPResultInsufficientAccessRights))
+		return
+	}
+
+	key := getKey(string(r.Object()))
+
 	// try at most 10 times
 	for i := 0; i < 10; i++ {
 		resp, err := kvc.Get(context.Background(), key)
@@ -620,6 +668,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 	// https://tools.ietf.org/html/rfc3062#section-2
 	r := m.GetExtendedRequest()
+
 	val := r.RequestValue().Bytes()
 	pkt, err := ber.DecodePacketErr(val)
 	if err != nil || len(pkt.Children) != 3 {
@@ -629,11 +678,19 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 	dn := string(pkt.Children[0].Data.Bytes())
 	oldPass := string(pkt.Children[1].Data.Bytes())
 	newPass := string(pkt.Children[2].Data.Bytes())
+
 	log.Printf("[%s]Handle password modify %s", m.Client.Addr(), dn)
 
-	parts := getParts(dn)
+	// root dn can modify all passwords,
+	// while others can only modify their own
+	if !(bindDN[m.Client.Numero] == rootDN || bindDN[m.Client.Numero] == dn) {
+		log.Printf("[%s]Access denied to modify password of %s by user %s",
+			m.Client.Addr(), dn, bindDN[m.Client.Numero])
+		w.Write(ldap.NewDeleteResponse(ldap.LDAPResultInsufficientAccessRights))
+		return
+	}
 
-	key := strings.Join(parts, ",")
+	key := getKey(dn)
 	// try at most 10 times
 	for i := 0; i < 10; i++ {
 		resp, err := kvc.Get(context.Background(), key)
