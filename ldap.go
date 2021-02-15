@@ -264,7 +264,7 @@ func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 		var value map[string][]message.AttributeValue
 		err := json.Unmarshal(resp.Kvs[i].Value, &value)
 		if err != nil {
-			log.Printf("Failed to unmarshal json: %s", err)
+			log.Printf("[%s]Failed to unmarshal json: %s", m.Client.Addr(), err)
 			continue
 		}
 
@@ -322,7 +322,7 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 
 	val, err := json.Marshal(attrs)
 	if err != nil {
-		log.Printf("Got error when marshal attributes into json: %s", err)
+		log.Printf("[%s]Got error when marshal attributes into json: %s", m.Client.Addr(), err)
 		res := ldap.NewAddResponse(ldap.LDAPResultUnavailable)
 		w.Write(res)
 		return
@@ -333,24 +333,24 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 	resp, err := txn.Commit()
 
 	if err != nil {
-		log.Printf("Got error when add request: %s", err)
+		log.Printf("[%s]Got error when add request: %s", m.Client.Addr(), err)
 		res := ldap.NewAddResponse(ldap.LDAPResultUnavailable)
 		w.Write(res)
 	} else {
 		if resp.Succeeded {
 			// success
-			log.Printf("Add entry: %s", key)
+			log.Printf("[%s]Add entry: %s", m.Client.Addr(), key)
 			res := ldap.NewAddResponse(ldap.LDAPResultSuccess)
 			w.Write(res)
 		} else {
 			if resp.Responses[0].GetResponseRange().GetCount() > 0 {
 				// already exists
-				log.Printf("Failed to add entry %s: already exists", key)
+				log.Printf("[%s]Failed to add entry %s: already exists", m.Client.Addr(), key)
 				res := ldap.NewAddResponse(ldap.LDAPResultEntryAlreadyExists)
 				w.Write(res)
 			} else {
 				// parent does not exist
-				log.Printf("Failed to add entry %s: parent does not exist", key)
+				log.Printf("[%s]Failed to add entry %s: parent does not exist", m.Client.Addr(), key)
 				res := ldap.NewAddResponse(ldap.LDAPResultNoSuchObject)
 				w.Write(res)
 			}
@@ -367,16 +367,16 @@ func handleDelete(w ldap.ResponseWriter, m *ldap.Message) {
 	// TODO: check if children exist
 	resp, err := kvc.Delete(context.Background(), key)
 	if err != nil {
-		log.Printf("Failed to delete entry %s: %s", key, err)
+		log.Printf("[%s]Failed to delete entry %s: %s", m.Client.Addr(), key, err)
 		res := ldap.NewDeleteResponse(ldap.LDAPResultOther)
 		w.Write(res)
 	} else {
 		if resp.Deleted > 0 {
-			log.Printf("Entry %s deleted", key)
+			log.Printf("[%s]Entry %s deleted", m.Client.Addr(), key)
 			res := ldap.NewDeleteResponse(ldap.LDAPResultSuccess)
 			w.Write(res)
 		} else {
-			log.Printf("Failed to delete nonexistent entry %s", key)
+			log.Printf("[%s]Failed to delete nonexistent entry %s", m.Client.Addr(), key)
 			res := ldap.NewDeleteResponse(ldap.LDAPResultNoSuchObject)
 			w.Write(res)
 		}
@@ -441,7 +441,7 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 	for i := 0; i < 10; i++ {
 		resp, err := kvc.Get(context.Background(), key)
 		if err != nil {
-			log.Printf("Entry %s not found: %s", key, err)
+			log.Printf("[%s]Entry %s not found: %s", m.Client.Addr(), key, err)
 			res := ldap.NewModifyResponse(ldap.LDAPResultNoSuchObject)
 			w.Write(res)
 			return
@@ -451,7 +451,7 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 		var value map[string][]message.AttributeValue
 		err = json.Unmarshal(before, &value)
 		if err != nil {
-			log.Printf("Failed to unmarshal json: %s", err)
+			log.Printf("[%s]Failed to unmarshal json: %s", m.Client.Addr(), err)
 			res := ldap.NewModifyResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
@@ -527,7 +527,7 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 		after, err := json.Marshal(value)
 		if err != nil {
-			log.Printf("Failed to marshal json: %s", err)
+			log.Printf("[%s]Failed to marshal json: %s", m.Client.Addr(), err)
 			res := ldap.NewModifyResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
@@ -573,7 +573,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 	dn := string(pkt.Children[0].Data.Bytes())
 	oldPass := string(pkt.Children[1].Data.Bytes())
 	newPass := string(pkt.Children[2].Data.Bytes())
-	log.Printf("[%s]Handle password modify %s from %s to %s", m.Client.Addr(), dn, oldPass, newPass)
+	log.Printf("[%s]Handle password modify %s", m.Client.Addr(), dn)
 
 	parts := getParts(dn)
 
@@ -582,7 +582,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 	for i := 0; i < 10; i++ {
 		resp, err := kvc.Get(context.Background(), key)
 		if err != nil {
-			log.Printf("Entry %s not found: %s", key, err)
+			log.Printf("[%s]Entry %s not found: %s", m.Client.Addr(), key, err)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultNoSuchObject)
 			w.Write(res)
 			return
@@ -592,7 +592,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 		var value map[string][]message.AttributeValue
 		err = json.Unmarshal(before, &value)
 		if err != nil {
-			log.Printf("Failed to unmarshal json: %s", err)
+			log.Printf("[%s]Failed to unmarshal json: %s", m.Client.Addr(), err)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
@@ -600,7 +600,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 		userPassword, ok := value["userPassword"]
 		if !ok || len(userPassword) != 1 {
-			log.Printf("Bad password in entry %s", key)
+			log.Printf("[%s]Bad password in entry %s", m.Client.Addr(), key)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
@@ -624,7 +624,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 			correct = pass == oldPass
 		}
 		if !correct {
-			log.Printf("Wrong password in entry %s", key)
+			log.Printf("[%s]Wrong password in entry %s", m.Client.Addr(), key)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultInvalidCredentials)
 			w.Write(res)
 			return
@@ -632,7 +632,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 		npass, err := passwordEncrypt(newPass)
 		if err != nil {
-			log.Printf("Failed to hash password: %s", err)
+			log.Printf("[%s]Failed to hash password: %s", m.Client.Addr(), err)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
@@ -641,7 +641,7 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 
 		after, err := json.Marshal(value)
 		if err != nil {
-			log.Printf("Failed to marshal json: %s", err)
+			log.Printf("[%s]Failed to marshal json: %s", m.Client.Addr(), err)
 			res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
 			w.Write(res)
 			return
