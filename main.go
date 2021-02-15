@@ -162,6 +162,7 @@ func action(c *cli.Context) error {
 	routes.Add(handleAdd)
 	routes.Delete(handleDelete)
 	routes.Abandon(handleAbandon)
+	routes.Modify(handleModify)
 	routes.Extended(handleStartTLS).
 		RequestName(ldap.NoticeOfStartTLS)
 	ldapServer.Handle(routes)

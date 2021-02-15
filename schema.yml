@@ -6,7 +6,7 @@ schemas:
   link: https://tools.ietf.org/html/rfc4517#section-3.3.13
   name: GeneralizedTime
   desc: Generalized Time
-- oid: 1.3.6.1.4.1.1466.115.121.1.26
+- oid: 1.3.6.1.4.1.1466.115.121.1.25
   link: https://tools.ietf.org/html/rfc4517#section-3.3.15
   name: IA5String
   desc: IA5 String
@@ -14,6 +14,14 @@ schemas:
   link: https://tools.ietf.org/html/rfc4517#section-3.3.16
   name: INTEGER
   desc: INTEGER
+- oid: 1.3.6.1.4.1.1466.115.121.1.38
+  link: https://tools.ietf.org/html/rfc4517#section-3.3.26
+  name: OBJECT IDENTIFIER
+  desc: OID String
+- oid: 1.3.6.1.4.1.1466.115.121.1.40
+  link: https://tools.ietf.org/html/rfc4517#section-3.3.25
+  name: OCTET STRING
+  desc: Octet String
 - oid: nisSchema.2.0
   link: https://tools.ietf.org/html/rfc2307#section-4
   name: posixAccount
@@ -53,6 +61,11 @@ schemas:
   substrings: caseIgnoreIA5SubstringsMatch
   syntax: IA5String
   single-value: true
+- oid: 2.5.4.35
+  link: https://tools.ietf.org/html/rfc4519#section-2.41
+  name: userPassword
+  equality: octetStringMatch
+  syntax: OCTET STRING
 - oid: 2.5.18.1
   link: https://tools.ietf.org/html/rfc4512#section-3.4.2
   name: createTimestamp

@@ -386,6 +386,7 @@ func handleAbandon(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handleStartTLS(w ldap.ResponseWriter, m *ldap.Message) {
+	// https://tools.ietf.org/html/rfc4511#section-4.14
 	cert, err := tls.LoadX509KeyPair(host.TLSCert, host.TLSKey)
 	if err != nil {
 		log.Printf("StartTLS failed when loading x509 keypair: %s", err)
@@ -414,4 +415,136 @@ func handleStartTLS(w ldap.ResponseWriter, m *ldap.Message) {
 
 	m.Client.SetConn(tlsConn)
 	log.Printf("[%s]StartTLS Done", m.Client.Addr())
+}
+
+func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
+	// https://tools.ietf.org/html/rfc4511#section-4.6
+	r := m.GetModifyRequest()
+	log.Printf("[%s]Handle modify %s", m.Client.Addr(), r.Object())
+	parts := getParts(string(r.Object()))
+
+	key := strings.Join(parts, ",")
+	// try at most 10 times
+	for i := 0; i < 10; i++ {
+		resp, err := kvc.Get(context.Background(), key)
+		if err != nil {
+			log.Printf("Entry %s not found: %s", key, err)
+			res := ldap.NewModifyResponse(ldap.LDAPResultNoSuchObject)
+			w.Write(res)
+			return
+		}
+
+		before := resp.Kvs[0].Value
+		var value map[string][]message.AttributeValue
+		err = json.Unmarshal(before, &value)
+		if err != nil {
+			log.Printf("Failed to unmarshal json: %s", err)
+			res := ldap.NewModifyResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		for _, change := range r.Changes() {
+			t := string(change.Modification().Type_())
+			mod := change.Modification().Vals()
+			// auto encrypt for userPassword
+			if strings.EqualFold(t, "userPassword") {
+				crypt := crypt.SHA512.New()
+				for i := range mod {
+					if !strings.HasPrefix(string(mod[i]), "{crypt}") {
+						n, err := crypt.Generate([]byte(string(mod[i])), []byte{})
+						if err != nil {
+							log.Printf("[%s]Failed to encrypt password: %s", m.Client.Addr(), err)
+							res := ldap.NewModifyResponse(ldap.LDAPResultOther)
+							w.Write(res)
+							return
+						}
+						mod[i] = message.AttributeValue("{crypt}" + string(n))
+					}
+				}
+			}
+
+			switch change.Operation() {
+			case ldap.ModifyRequestChangeOperationAdd:
+				s := []message.AttributeValue{}
+				key := t
+				for k := range value {
+					if strings.EqualFold(k, t) {
+						// found key
+						s = value[k]
+						key = k
+						break
+					}
+				}
+				s = append(s, mod...)
+				value[key] = s
+			case ldap.ModifyRequestChangeOperationDelete:
+				for k := range value {
+					if strings.EqualFold(k, t) {
+						// found key
+						vals := map[message.AttributeValue]bool{}
+						// add original
+						for _, v := range value[key] {
+							vals[v] = true
+						}
+						// remove deleted
+						for _, v := range mod {
+							delete(vals, v)
+						}
+						// collect
+						n := []message.AttributeValue{}
+						for k := range vals {
+							n = append(n, k)
+						}
+						value[key] = n
+						break
+					}
+				}
+			case ldap.ModifyRequestChangeOperationReplace:
+				key := t
+				for k := range value {
+					if strings.EqualFold(k, t) {
+						// found key
+						key = k
+						break
+					}
+				}
+				value[key] = mod
+			}
+		}
+
+		after, err := json.Marshal(value)
+		if err != nil {
+			log.Printf("Failed to marshal json: %s", err)
+			res := ldap.NewModifyResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		// update if untouched
+		txn := kvc.Txn(context.Background()).
+			If(clientv3.Compare(clientv3.Value(key), "=", string(before))).
+			Then(clientv3.OpPut(key, string(after)))
+		txnResp, err := txn.Commit()
+		if err != nil {
+			log.Printf("[%s]Failed to submit txn: %s", m.Client.Addr(), err)
+			res := ldap.NewModifyResponse(ldap.LDAPResultOther)
+			w.Write(res)
+			return
+		}
+
+		if txnResp.Succeeded {
+			log.Printf("[%s]Entry %s updated from %s to %s", m.Client.Addr(), key, before, after)
+			res := ldap.NewModifyResponse(ldap.LDAPResultSuccess)
+			w.Write(res)
+			return
+		}
+
+		// fail, retry
+	}
+
+	log.Printf("[%s]Entry update conflicted too many times: %s", m.Client.Addr(), key)
+	res := ldap.NewModifyResponse(ldap.LDAPResultNoSuchObject)
+	w.Write(res)
+	return
 }
