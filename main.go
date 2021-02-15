@@ -46,8 +46,11 @@ func action(c *cli.Context) error {
 
 	configFile := c.String("config")
 	stat, err := os.Stat(configFile)
-	if stat.Mode() != 0600 {
-		log.Fatalf("Config file mode(%o) should be 600", stat.Mode())
+	if err != nil {
+		log.Fatal("Failed to stat config file: ", err)
+		return err
+	} else if stat.Mode()&0600 != stat.Mode() {
+		log.Fatalf("Config file mode(%o) should be a subset of 600", stat.Mode())
 		return err
 	}
 
@@ -81,6 +84,17 @@ func action(c *cli.Context) error {
 	if host.HostName == "" {
 		log.Fatalf("Config not found for hostname %s", hostname)
 		return err
+	}
+
+	if host.TLSKey != "" {
+		stat, err := os.Stat(host.TLSKey)
+		if err != nil {
+			log.Fatal("Failed to stat tls key file: ", err)
+			return err
+		} else if stat.Mode()&0600 != stat.Mode() {
+			log.Fatalf("TLS file mode(%o) should be a subset of 600", stat.Mode())
+			return err
+		}
 	}
 
 	cfg := embed.NewConfig()
