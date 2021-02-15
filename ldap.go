@@ -18,7 +18,7 @@ import (
 )
 
 // the map from m.Client.Numero to DN bound
-var bindDN map[int]string
+var bindDN map[int]string = make(map[int]string)
 
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetBindRequest()
@@ -40,14 +40,14 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 				// success
 				log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
 
-				res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
-				w.Write(res)
+				bindDN[m.Client.Numero] = string(r.Name())
+
+				w.Write(ldap.NewBindResponse(ldap.LDAPResultSuccess))
 				return
 			}
 		}
 
-		res := ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials)
-		w.Write(res)
+		w.Write(ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials))
 		return
 	}
 
