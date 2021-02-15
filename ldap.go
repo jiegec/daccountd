@@ -26,8 +26,30 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 		return
 	}
 
+	if r.Name() == "uid=root" {
+		// bind to root
+		pass := config.RootPassword
+		if crypt.IsHashSupported(pass) {
+			crypt := crypt.NewFromHash(pass)
+			err := crypt.Verify(pass, r.AuthenticationSimple().Bytes())
+			if err == nil {
+				// success
+				log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
+
+				res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
+				w.Write(res)
+				return
+			}
+		}
+
+		res := ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials)
+		w.Write(res)
+		return
+	}
+
 	parts := getParts(string(r.Name()))
 	key := strings.Join(parts, ",")
+
 	resp, err := kvc.Get(context.Background(), key)
 	if err != nil {
 		goto fail
@@ -50,12 +72,11 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 						continue
 					}
 
-					log.Printf("Verify %s, %s", pass, r.AuthenticationSimple().Bytes())
 					crypt := crypt.NewFromHash(pass)
 					err := crypt.Verify(pass, r.AuthenticationSimple().Bytes())
 					if err == nil {
 						// success
-						log.Printf("[%s]Bind success: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
+						log.Printf("[%s]Bind success: name=%s", m.Client.Addr(), r.Name())
 
 						res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
 						w.Write(res)
@@ -69,7 +90,7 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 
 fail:
 	// fail
-	log.Printf("[%s]Bind failed: name=%s auth=%s", m.Client.Addr(), r.Name(), r.AuthenticationSimple())
+	log.Printf("[%s]Bind failed: name=%s", m.Client.Addr(), r.Name())
 
 	res := ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials)
 	w.Write(res)
@@ -365,7 +386,7 @@ func handleAbandon(w ldap.ResponseWriter, m *ldap.Message) {
 }
 
 func handleStartTLS(w ldap.ResponseWriter, m *ldap.Message) {
-	cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
+	cert, err := tls.LoadX509KeyPair(host.TLSCert, host.TLSKey)
 	if err != nil {
 		log.Printf("StartTLS failed when loading x509 keypair: %s", err)
 		res := ldap.NewResponse(ldap.LDAPResultUnwillingToPerform)

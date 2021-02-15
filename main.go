@@ -30,14 +30,15 @@ type Host struct {
 
 // Config struct for config file
 type Config struct {
-	Host []Host
+	RootPassword string
+	Host         []Host
 }
 
 var etcd *embed.Etcd
 var client *clientv3.Client
 var kvc clientv3.KV
-var tlsCert string
-var tlsKey string
+var config Config
+var host Host
 
 func action(c *cli.Context) error {
 	sigChannel := make(chan os.Signal, 1)
@@ -56,7 +57,7 @@ func action(c *cli.Context) error {
 		return err
 	}
 
-	config := Config{}
+	config = Config{}
 	err = toml.Unmarshal(data, &config)
 	if err != nil {
 		log.Fatal("Failed to parse config file: ", err)
@@ -65,7 +66,7 @@ func action(c *cli.Context) error {
 
 	hostname := c.String("host")
 
-	host := Host{}
+	host = Host{}
 	initialCluster := ""
 	for h := range config.Host {
 		initialCluster += fmt.Sprintf(",%s=%s", config.Host[h].HostName, config.Host[h].AdvertisePeer)
@@ -81,8 +82,6 @@ func action(c *cli.Context) error {
 		log.Fatalf("Config not found for hostname %s", hostname)
 		return err
 	}
-	tlsCert = host.TLSCert
-	tlsKey = host.TLSKey
 
 	cfg := embed.NewConfig()
 	cfg.Dir = c.String("data-dir")
