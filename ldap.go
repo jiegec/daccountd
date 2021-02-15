@@ -558,6 +558,11 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 			}
 		}
 
+		// operational attribuets
+		// https://tools.ietf.org/html/rfc4512#section-3.4
+		t := time.Now().Format(generalizedTimeFormat)
+		value["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
+
 		after, err := json.Marshal(value)
 		if err != nil {
 			log.Printf("[%s]Failed to marshal json: %s", m.Client.Addr(), err)
@@ -676,6 +681,11 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 			return
 		}
 		value["userPassword"] = []message.AttributeValue{message.AttributeValue(npass)}
+
+		// operational attribuets
+		// https://tools.ietf.org/html/rfc4512#section-3.4
+		t := time.Now().Format(generalizedTimeFormat)
+		value["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
 		after, err := json.Marshal(value)
 		if err != nil {
