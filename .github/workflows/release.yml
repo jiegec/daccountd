@@ -1,0 +1,53 @@
+name: release
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Setup dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y upx
+
+    - name: Set up Go 1.13
+      uses: actions/setup-go@v1
+      with:
+        go-version: 1.13
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Build
+      run: |
+        ./build.sh
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+    - name: Upload Artifacts
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        tag_name="${GITHUB_REF##*/}"
+        hub release edit $(find . -type f -executable -name "daccountd-windows-amd64" -printf "-a %p ") -m "" "$tag_name" 
+        hub release edit $(find . -type f -executable -name "daccountd-darwin-amd64" -printf "-a %p ") -m "" "$tag_name" 
+        hub release edit $(find . -type f -executable -name "daccountd-linux-amd64" -printf "-a %p ") -m "" "$tag_name" 
+        hub release edit $(find . -type f -executable -name "daccountd-linux-arm64" -printf "-a %p ") -m "" "$tag_name" 
+        hub release edit $(find . -type f -executable -name "daccountd-linux-ppc64le" -printf "-a %p ") -m "" "$tag_name" 
+        hub release edit $(find . -type f -executable -name "daccountd-linux-mipsle" -printf "-a %p ") -m "" "$tag_name" 
