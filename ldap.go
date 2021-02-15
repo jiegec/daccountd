@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -281,8 +282,16 @@ func handleSearch(w ldap.ResponseWriter, m *ldap.Message) {
 			continue
 		}
 
-		for k, v := range value {
-			res.AddAttribute(message.AttributeDescription(k), v...)
+		// output in order
+		keys := make([]string, len(value))
+		i := 0
+		for k := range value {
+			keys[i] = k
+			i++
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			res.AddAttribute(message.AttributeDescription(k), value[k]...)
 		}
 		w.Write(res)
 		count = count + 1
