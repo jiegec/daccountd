@@ -15,6 +15,7 @@ import (
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/embed"
 	"go.etcd.io/etcd/pkg/types"
+	etcdVersion "go.etcd.io/etcd/version"
 )
 
 // Host struct represents a host
@@ -150,6 +151,7 @@ func action(c *cli.Context) error {
 		}
 	}
 
+	log.Printf("Using etcd version %s", etcdVersion.Version)
 	log.Printf("Using advertise client url: %s", cfg.ACUrls[0].String())
 	log.Printf("Using listen client url: %s", cfg.LCUrls[0].String())
 	log.Printf("Using advertise peer url: %s", cfg.APUrls[0].String())

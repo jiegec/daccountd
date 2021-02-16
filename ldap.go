@@ -12,10 +12,10 @@ import (
 	"github.com/GehirnInc/crypt"
 	_ "github.com/GehirnInc/crypt/sha256_crypt"
 	_ "github.com/GehirnInc/crypt/sha512_crypt"
+	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
 	"go.etcd.io/etcd/clientv3"
-	ber "gopkg.in/asn1-ber.v1"
 )
 
 // the map from m.Client.Numero to DN bound
