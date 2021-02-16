@@ -122,6 +122,7 @@ func action(c *cli.Context) error {
 	cfg.LogOutputs = []string{fmt.Sprintf("etcd-%s.log", hostname)}
 	cfg.ClientAutoTLS = true
 	cfg.PeerAutoTLS = true
+	cfg.Logger = "zap"
 	if c.Bool("existing") {
 		cfg.ClusterState = "existing"
 	}
