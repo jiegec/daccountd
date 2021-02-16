@@ -1,5 +1,9 @@
+# ldap root password for dn "uid=root"
 # password="test", do not use this in production
 RootPassword = "$6$1L2Zx6dCaWkHTIfT$SDGFU3PdbE2TN4Choqwy6pq4/L6xNAFtsnEchlEkbdEp1It2uNV.gX2S8DLEqWbq18NNPt7TFkbGKphdmFxqo1"
+# etcd password of user root
+# if empty or unset, auth of etcd is unused
+EtcdPassword = ""
 
 [[Host]]
 HostName = "node1"

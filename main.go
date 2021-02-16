@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,7 @@ type Host struct {
 // Config struct for config file
 type Config struct {
 	RootPassword string
+	EtcdPassword string
 	Host         []Host
 }
 
@@ -190,14 +192,74 @@ func action(c *cli.Context) error {
 
 	go ldapServer.ListenAndServe(host.Ldap)
 
+	etcdUsername := ""
+	etcdPassword := ""
+	if config.EtcdPassword != "" {
+		log.Printf("Using root user to access etcd")
+		etcdUsername = "root"
+		etcdPassword = config.EtcdPassword
+	} else {
+		log.Printf("Etcd is unprotected, please beware!")
+	}
+
 	client, err = clientv3.New(clientv3.Config{
 		Endpoints:   []string{host.ListenClient},
 		DialTimeout: 5 * time.Second,
+		Username:    etcdUsername,
+		Password:    etcdPassword,
 	})
 	if err != nil {
 		log.Fatal("Failed to start etcd client: ", err)
 		return err
 	}
+
+	auth := clientv3.NewAuth(client)
+
+	// check authentication is good
+	_, err = auth.UserList(context.Background())
+	if err != nil {
+		log.Fatal("Authentication failed, please check root password setting")
+		return err
+	}
+
+	// if EtcdPassword is set, test root user and enable auth
+	if config.EtcdPassword != "" {
+		auth := clientv3.NewAuth(client)
+
+		_, err = auth.UserGet(context.Background(), "root")
+		if err != nil {
+			log.Printf("Root user does not exist, creating etcd root user")
+			_, err := auth.UserAdd(context.Background(), "root", config.EtcdPassword)
+			if err != nil {
+				log.Fatal("Failed to create etcd root user: ", err)
+				return err
+			}
+		}
+
+		log.Printf("Granting root role to etcd root user")
+		_, err = auth.UserGrantRole(context.Background(), "root", "root")
+		if err != nil {
+			log.Fatal("Failed to grant root role: ", err)
+			return err
+		}
+
+		log.Printf("Enabling etcd auth")
+		_, err = auth.AuthEnable(context.Background())
+		if err != nil {
+			log.Fatal("Failed to enable auth on etcd: ", err)
+			return err
+		}
+
+		log.Printf("Etcd is protected")
+	}
+
+	// check authentication is good again
+	_, err = auth.UserList(context.Background())
+	if err != nil {
+		log.Fatal("Authentication failed, please check root password setting")
+		return err
+	}
+
 	kvc = clientv3.NewKV(client)
 	defer client.Close()
 
