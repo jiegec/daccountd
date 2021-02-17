@@ -86,6 +86,12 @@ func action(c *cli.Context) error {
 		return err
 	}
 
+	// override
+	envEtcdPasswd := os.Getenv("DACCOUNTD_ETCD_PASSWORD")
+	if envEtcdPasswd != "" {
+		config.EtcdPassword = envEtcdPasswd
+	}
+
 	hostname := c.String("host")
 
 	host = Host{}
