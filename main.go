@@ -69,8 +69,13 @@ func action(c *cli.Context) error {
 		log.Fatal("Failed to stat config file: ", err)
 		return err
 	} else if stat.Mode()&0600 != stat.Mode() {
-		log.Fatalf("Config file mode(%o) should be a subset of 600", stat.Mode())
-		return err
+		log.Printf("Config file mode(%o) should be a subset of 600", stat.Mode())
+		log.Printf("Setting config file mode to 600")
+		err := os.Chmod(configFile, 0600)
+		if err != nil {
+			log.Fatal("Failed to chmod 600 config file: ", err)
+			return err
+		}
 	}
 
 	data, err := ioutil.ReadFile(configFile)
