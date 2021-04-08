@@ -125,7 +125,6 @@ fail:
 
 	res := ldap.NewBindResponse(ldap.LDAPResultInvalidCredentials)
 	w.Write(res)
-	return
 
 }
 
@@ -657,7 +656,6 @@ func handleModify(w ldap.ResponseWriter, m *ldap.Message) {
 	log.Printf("[%s]Entry update conflicted too many times: %s", m.Client.Addr(), key)
 	res := ldap.NewModifyResponse(ldap.LDAPResultNoSuchObject)
 	w.Write(res)
-	return
 }
 
 func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
@@ -675,9 +673,9 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 		res := ldap.NewExtendedResponse(ldap.LDAPResultOther)
 		w.Write(res)
 	}
-	dn := string(pkt.Children[0].Data.Bytes())
-	oldPass := string(pkt.Children[1].Data.Bytes())
-	newPass := string(pkt.Children[2].Data.Bytes())
+	dn := pkt.Children[0].Data.String()
+	oldPass := pkt.Children[1].Data.String()
+	newPass := pkt.Children[2].Data.String()
 
 	log.Printf("[%s]Handle password modify %s", m.Client.Addr(), dn)
 
@@ -791,5 +789,4 @@ func handlePasswordModify(w ldap.ResponseWriter, m *ldap.Message) {
 	log.Printf("[%s]Entry update conflicted too many times: %s", m.Client.Addr(), key)
 	res := ldap.NewExtendedResponse(ldap.LDAPResultNoSuchObject)
 	w.Write(res)
-	return
 }
