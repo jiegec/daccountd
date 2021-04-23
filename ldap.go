@@ -371,6 +371,24 @@ func handleAdd(w ldap.ResponseWriter, m *ldap.Message) {
 	attrs["modifiersName"] = []message.AttributeValue{message.AttributeValue(bindDN[m.Client.Numero])}
 	attrs["modifyTimestamp"] = []message.AttributeValue{message.AttributeValue(t)}
 
+	for k, v := range attrs {
+		// auto encryption
+		if strings.EqualFold(k, "userPassword") {
+			for i := range v {
+				if !strings.HasPrefix(string(v[i]), "{crypt}") {
+					n, err := passwordEncrypt(string(v[i]))
+					if err != nil {
+						log.Printf("[%s]Failed to encrypt password: %s", m.Client.Addr(), err)
+						res := ldap.NewModifyResponse(ldap.LDAPResultOther)
+						w.Write(res)
+						return
+					}
+					attrs[k][i] = message.AttributeValue(string(n))
+				}
+			}
+		}
+	}
+
 	val, err := json.Marshal(attrs)
 	if err != nil {
 		log.Printf("[%s]Got error when marshal attributes into json: %s", m.Client.Addr(), err)
