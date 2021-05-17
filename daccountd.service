@@ -5,6 +5,7 @@ After=network.target
 [Service]
 WorkingDirectory=/etc/daccountd
 ExecStart=/usr/sbin/daccountd --config config.toml
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
