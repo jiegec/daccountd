@@ -15,7 +15,7 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/lor00x/goldap/message"
 	ldap "github.com/vjeantet/ldapserver"
-	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/client/v3"
 )
 
 // the map from m.Client.Numero to DN bound

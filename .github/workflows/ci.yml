@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+
+    - name: Build
+      run: go build ./...
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test
+      run: go test ./...
+
+    - name: Cross compile
+      run: |
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /dev/null .
+        CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /dev/null .
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null .
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null .
+        CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le go build -o /dev/null .
+        CGO_ENABLED=0 GOOS=linux GOARCH=mipsle go build -o /dev/null .

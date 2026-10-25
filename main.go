@@ -10,13 +10,13 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/pelletier/go-toml"
-	"github.com/urfave/cli/v2"
+	"github.com/pelletier/go-toml/v2"
+	"github.com/urfave/cli/v3"
 	ldap "github.com/vjeantet/ldapserver"
-	"go.etcd.io/etcd/clientv3"
-	"go.etcd.io/etcd/embed"
-	"go.etcd.io/etcd/pkg/types"
-	etcdVersion "go.etcd.io/etcd/version"
+	etcdVersion "go.etcd.io/etcd/api/v3/version"
+	"go.etcd.io/etcd/client/pkg/v3/types"
+	"go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/server/v3/embed"
 )
 
 // Host struct represents a host
@@ -44,7 +44,7 @@ var kvc clientv3.KV
 var config Config
 var host Host
 
-func action(c *cli.Context) error {
+func action(ctx context.Context, c *cli.Command) error {
 	if c.Bool("install") {
 		log.Printf("Installing daccountd.service to /etc/systemd/system")
 		err := ioutil.WriteFile("/etc/systemd/system/daccountd.service", systemdService, 0644)
@@ -143,35 +143,35 @@ func action(c *cli.Context) error {
 	}
 
 	if host.AdvertiseClient != "" {
-		if cfg.ACUrls, err = types.NewURLs([]string{host.AdvertiseClient}); err != nil {
+		if cfg.AdvertiseClientUrls, err = types.NewURLs([]string{host.AdvertiseClient}); err != nil {
 			log.Fatalf("Bad url(%s): %s", host.AdvertiseClient, err)
 			return err
 		}
 	}
 	if host.ListenClient != "" {
-		if cfg.LCUrls, err = types.NewURLs([]string{host.ListenClient}); err != nil {
+		if cfg.ListenClientUrls, err = types.NewURLs([]string{host.ListenClient}); err != nil {
 			log.Fatalf("Bad url(%s): %s", host.ListenClient, err)
 			return err
 		}
 	}
 	if host.AdvertisePeer != "" {
-		if cfg.APUrls, err = types.NewURLs([]string{host.AdvertisePeer}); err != nil {
+		if cfg.AdvertisePeerUrls, err = types.NewURLs([]string{host.AdvertisePeer}); err != nil {
 			log.Fatalf("Bad url(%s): %s", host.AdvertisePeer, err)
 			return err
 		}
 	}
 	if host.ListenPeer != "" {
-		if cfg.LPUrls, err = types.NewURLs([]string{host.ListenPeer}); err != nil {
+		if cfg.ListenPeerUrls, err = types.NewURLs([]string{host.ListenPeer}); err != nil {
 			log.Fatalf("Bad url(%s): %s", host.ListenPeer, err)
 			return err
 		}
 	}
 
 	log.Printf("Using etcd version %s", etcdVersion.Version)
-	log.Printf("Using advertise client url: %s", cfg.ACUrls[0].String())
-	log.Printf("Using listen client url: %s", cfg.LCUrls[0].String())
-	log.Printf("Using advertise peer url: %s", cfg.APUrls[0].String())
-	log.Printf("Using listen peer url: %s", cfg.LPUrls[0].String())
+	log.Printf("Using advertise client url: %s", cfg.AdvertiseClientUrls[0].String())
+	log.Printf("Using listen client url: %s", cfg.ListenClientUrls[0].String())
+	log.Printf("Using advertise peer url: %s", cfg.AdvertisePeerUrls[0].String())
+	log.Printf("Using listen peer url: %s", cfg.ListenPeerUrls[0].String())
 	log.Printf("Using initial cluster: %s", cfg.InitialCluster)
 
 	etcd, err = embed.StartEtcd(cfg)
@@ -296,7 +296,7 @@ func main() {
 		log.Printf("Failed to get hostname: %s", err)
 	}
 
-	app := &cli.App{
+	app := &cli.Command{
 		Name:  "daccountd",
 		Usage: "A distributed account system",
 		Flags: []cli.Flag{
@@ -327,7 +327,7 @@ func main() {
 		Action: action,
 	}
 
-	err = app.Run(os.Args)
+	err = app.Run(context.Background(), os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
